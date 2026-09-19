@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CANDOR // Candidate Console</title>
+<meta name="description" content="CANDOR recruiter workspace — Match Score and Evidence Confidence shown separately, with full evidence review required before any human decision is logged." />
+<style>
+  :root{
+    --cyan:#2fe3ff; --cyan-dim:#1a7c8f; --amber:#ffb020; --green:#3ee08a; --red:#ff4f63;
+    --bg0:#05070c; --bg1:#0a0f1a; --bg2:#0e1526; --bg3:#121a2e;
+    --line:#1c2a3f; --line-dim:#141d2c;
+    --txt:#dbeaf2; --txt-dim:#8399ad;
+    --font-d:'Orbitron',sans-serif; --font-b:'Rajdhani',sans-serif; --font-m:'Share Tech Mono',monospace;
+    --focus:2px solid #ffb020;
+  }
+  @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap');
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:var(--bg0);color:var(--txt);}
+  body{font-family:var(--font-b); font-size:16px; line-height:1.4; min-height:100vh;}
+  @media (prefers-reduced-motion: reduce){ *{animation-duration:.001ms !important; transition-duration:.001ms !important; scroll-behavior:auto !important;} }
+  a{color:var(--cyan);}
+  a:focus-visible, button:focus-visible, [tabindex]:focus-visible, input:focus-visible, select:focus-visible{ outline:var(--focus); outline-offset:2px; }
+  .skip-link{position:absolute; left:-9999px; top:0; background:var(--amber); color:#111; padding:.5em 1em; z-index:200; font-family:var(--font-m);}
+  .skip-link:focus{left:1em; top:1em;}
+  .mono{font-family:var(--font-m);}
+  button{font-family:inherit; cursor:pointer;}
+  .wrap{max-width:1200px; margin:0 auto; padding:0 18px 60px;}
+
+  header.topbar{
+    display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between;
+    padding:14px 18px; border-bottom:1px solid var(--line); position:sticky; top:0; z-index:30;
+    background:rgba(5,7,12,.92); backdrop-filter:blur(6px);
+  }
+  .brand{display:flex; align-items:center; gap:10px;}
+  .brand .mark{width:32px; height:32px; border:2px solid var(--cyan); border-radius:6px; display:grid; place-items:center; color:var(--cyan); font-family:var(--font-d); font-weight:700; font-size:12px;}
+  .brand h1{font-family:var(--font-d); font-size:16px; margin:0; letter-spacing:.06em;}
+  .jd-chip{font-family:var(--font-m); font-size:11px; color:var(--txt-dim); border:1px solid var(--line); border-radius:20px; padding:4px 10px;}
+  .mode-btns{display:flex; gap:8px;}
+  .mode-btn{background:var(--bg2); border:1px solid var(--line); color:var(--txt-dim); padding:7px 14px; border-radius:4px; font-family:var(--font-m); font-size:12px; letter-spacing:.04em;}
+  .mode-btn[aria-pressed="true"]{border-color:var(--cyan); color:var(--cyan); background:#2fe3ff14;}
+
+  .gate-strip{
+    margin:14px 0; padding:12px 16px; border:1px solid var(--amber); border-radius:4px; background:#ffb02012;
+    color:var(--txt); font-size:14px; line-height:1.5;
+  }
+  .gate-strip strong{color:var(--amber);}
+
+  .stats-strip{display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:10px; margin:16px 0;}
+  .stat-tile{border:1px solid var(--line); border-radius:4px; padding:10px 12px; background:var(--bg1);}
+  .stat-tile .label{font-family:var(--font-m); font-size:10px; color:var(--txt-dim); text-transform:uppercase; letter-spacing:.06em;}
+  .stat-tile .value{font-family:var(--font-d); font-size:22px; margin-top:4px;}
+
+  .view{display:none;}
+  .view.active{display:block;}
+
+  /* Triage */
+  .triage-wrap{display:flex; flex-direction:column; align-items:center; padding:20px 0;}
+  .card-stack{position:relative; width:100%; max-width:520px; height:520px;}
+  .tcard{
+    position:absolute; inset:0; border:1px solid var(--line); border-radius:10px; background:var(--bg2);
+    padding:20px; overflow-y:auto; box-shadow:0 10px 40px #0009; user-select:none; touch-action:pan-y;
+  }
+  .tcard .src{font-family:var(--font-m); font-size:11px; color:var(--txt-dim);}
+  .tcard .id{font-family:var(--font-m); font-size:13px; color:var(--txt); margin-top:2px; word-break:break-word;}
+  .score-pair{display:flex; gap:14px; margin-top:16px;}
+  .score-box{flex:1; border:1px solid var(--line); border-radius:6px; padding:12px; text-align:center;}
+  .score-box .lbl{font-family:var(--font-m); font-size:10.5px; color:var(--txt-dim); text-transform:uppercase; letter-spacing:.05em;}
+  .score-box .num{font-family:var(--font-d); font-size:34px; margin-top:6px;}
+  .score-box.ms .num{color:var(--cyan);} .score-box.ec .num{color:var(--amber);}
+  .score-note{font-family:var(--font-m); font-size:10.5px; color:var(--txt-dim); text-align:center; margin-top:6px;}
+  .interp-badge{display:inline-block; margin-top:14px; padding:5px 12px; border-radius:20px; font-family:var(--font-b); font-weight:600; font-size:13px; border:1px solid currentColor;}
+  .interp-badge.green{color:var(--green);} .interp-badge.red{color:var(--red);} .interp-badge.amber{color:var(--amber);} .interp-badge.cyan{color:var(--cyan);}
+  .req-lists{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:16px;}
+  .req-col h4{font-family:var(--font-m); font-size:10.5px; text-transform:uppercase; letter-spacing:.05em; margin:0 0 6px; color:var(--txt-dim);}
+  .req-col ul{margin:0; padding-left:18px; font-size:13px;}
+  .req-col.matched h4{color:var(--green);} .req-col.uncertain h4{color:var(--amber);}
+  .flag-note{margin-top:14px; padding:8px 10px; border-radius:4px; font-family:var(--font-m); font-size:11.5px;}
+  .flag-note.warn{border:1px solid var(--red); background:#ff4f6314; color:#ffb3bc;}
+  .flag-note.ok{border:1px solid var(--line); background:var(--bg1); color:var(--txt-dim);}
+  .evidence-btn{margin-top:16px; width:100%; padding:10px; border:1px solid var(--cyan); background:#2fe3ff14; color:var(--cyan); border-radius:6px; font-family:var(--font-m); font-size:12.5px;}
+  .triage-actions{display:flex; gap:10px; margin-top:18px; width:100%; max-width:520px;}
+  .tbtn{flex:1; padding:12px; border-radius:6px; border:1px solid var(--line); background:var(--bg2); color:var(--txt-dim); font-family:var(--font-m); font-size:12px;}
+  .tbtn:disabled{opacity:.4; cursor:not-allowed;}
+  .tbtn.pass:not(:disabled){border-color:var(--red); color:var(--red);}
+  .tbtn.info:not(:disabled){border-color:var(--amber); color:var(--amber);}
+  .tbtn.advance:not(:disabled){border-color:var(--green); color:var(--green);}
+  .triage-progress{font-family:var(--font-m); font-size:11.5px; color:var(--txt-dim); margin-top:10px;}
+  .client-note{font-family:var(--font-m); font-size:10.5px; color:var(--txt-dim); margin-top:16px; text-align:center; max-width:520px;}
+
+  /* Directory */
+  .dir-controls{display:flex; flex-wrap:wrap; gap:10px; margin:16px 0;}
+  .dir-controls input, .dir-controls select{
+    background:var(--bg1); border:1px solid var(--line); color:var(--txt); padding:8px 10px; border-radius:4px; font-family:var(--font-m); font-size:12.5px;
+  }
+  #q{flex:1; min-width:180px;}
+  .dir-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:14px;}
+  .dcard{border:1px solid var(--line); border-radius:8px; padding:14px; background:var(--bg2); cursor:pointer;}
+  .dcard:hover, .dcard:focus-visible{border-color:var(--cyan);}
+  .dcard .id{font-family:var(--font-m); font-size:11px; color:var(--txt-dim); word-break:break-word;}
+  .dcard .mini-scores{display:flex; gap:10px; margin-top:8px; font-family:var(--font-m); font-size:12px;}
+  .dcard .mini-scores b{font-family:var(--font-d);}
+  .dcard .interp{margin-top:8px; font-size:13px; font-weight:600;}
+
+  /* Modal */
+  .modal-overlay{position:fixed; inset:0; background:#000c; z-index:100; display:none; align-items:flex-start; justify-content:center; overflow-y:auto; padding:30px 14px;}
+  .modal-overlay.open{display:flex;}
+  .modal{background:var(--bg1); border:1px solid var(--cyan); border-radius:8px; max-width:720px; width:100%; padding:22px; margin-bottom:30px;}
+  .modal h2{font-family:var(--font-d); font-size:16px; margin:0 0 4px;}
+  .modal .close-btn{float:right; background:none; border:1px solid var(--line); color:var(--txt-dim); border-radius:4px; padding:4px 10px; font-family:var(--font-m);}
+  .modal h3{font-family:var(--font-m); font-size:12px; color:var(--cyan); text-transform:uppercase; letter-spacing:.06em; margin:20px 0 8px; border-top:1px solid var(--line); padding-top:16px;}
+  .factor-row{display:flex; justify-content:space-between; gap:10px; padding:8px 0; border-bottom:1px solid var(--line-dim); font-size:13.5px;}
+  .factor-row .fname{flex:1;}
+  .factor-row .fscore{font-family:var(--font-m); width:60px; text-align:right; flex:none;}
+  .factor-row.unused{opacity:.55;}
+  .factor-quote{font-family:var(--font-m); font-size:11.5px; color:var(--txt-dim); margin-top:2px; font-style:italic;}
+  .excl-grid{display:grid; grid-template-columns:1fr 1fr; gap:10px; font-family:var(--font-m); font-size:12px;}
+  .excl-col h4{margin:0 0 6px; font-size:10.5px; text-transform:uppercase; color:var(--txt-dim);}
+  .leak-ok{color:var(--green);} .leak-bad{color:var(--red);}
+  .briefing-text{font-size:14px; line-height:1.65; white-space:pre-wrap; background:var(--bg2); border:1px solid var(--line); border-radius:6px; padding:14px; margin-top:6px;}
+  .disclaimer-box{font-family:var(--font-m); font-size:11.5px; color:var(--txt-dim); border-top:1px solid var(--line); margin-top:20px; padding-top:14px; line-height:1.6;}
+  .decision-history-list{list-style:none; margin:0; padding:0;}
+  .decision-history-list li{font-family:var(--font-m); font-size:12px; padding:6px 0; border-bottom:1px solid var(--line-dim); display:flex; justify-content:space-between; gap:10px;}
+  .review-actions{display:flex; gap:10px; margin-top:16px; flex-wrap:wrap;}
+  .review-actions button{flex:1; min-width:140px; padding:10px; border-radius:6px; font-family:var(--font-m); font-size:12px; border:1px solid var(--line); background:var(--bg2); color:var(--txt);}
+  .review-actions button.pass{border-color:var(--red); color:var(--red);}
+  .review-actions button.info{border-color:var(--amber); color:var(--amber);}
+  .review-actions button.advance{border-color:var(--green); color:var(--green);}
+
+  footer{margin-top:40px; padding:18px 0; border-top:1px solid var(--line); font-family:var(--font-m); font-size:11px; color:var(--txt-dim); line-height:1.7;}
+
+  @media(max-width:640px){
+    .req-lists{grid-template-columns:1fr;}
+    .excl-grid{grid-template-columns:1fr;}
+    .brand h1{font-size:14px;}
+    .score-box .num{font-size:26px;}
+    .triage-actions{flex-wrap:wrap;}
+  }
+</style>
+</head>
+<body>
+
+<a href="#main" class="skip-link">Skip to main content</a>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="mark" aria-hidden="true">C</div>
+    <h1>CANDOR <span class="mono" style="color:var(--txt-dim); font-weight:400;">// Console</span></h1>
+  </div>
+  <span class="jd-chip mono" id="jd-chip">JD-MERIDIAN-RSM-01 · REGIONAL SALES MANAGER</span>
+  <div class="mode-btns" role="tablist" aria-label="View mode">
+    <button class="mode-btn" id="btn-triage" role="tab" aria-pressed="true" aria-controls="view-triage">Triage</button>
+    <button class="mode-btn" id="btn-directory" role="tab" aria-pressed="false" aria-controls="view-directory">Directory</button>
+  </div>
+</header>
+
+<main id="main" class="wrap">
+  <div class="gate-strip" role="note">
+    <strong>Human approval gate — active.</strong> CANDOR extracts claims, verifies them against the source
+    resume, and computes Match Score / Evidence Confidence deterministically. It never rejects, advances, or
+    contacts a candidate. Every decision below — swipe, tap, or click — is <strong>your</strong> action, logged
+    as a human decision, not the system's (Master Instructions §13).
+  </div>
+
+  <p class="mono" style="font-size:11px; color:var(--txt-dim);" id="snapshot-line"></p>
+
+  <div class="stats-strip" id="stats-strip"></div>
+
+  <div id="view-triage" class="view active" role="tabpanel">
+    <div class="triage-wrap">
+      <div class="card-stack" id="card-stack"></div>
+      <div class="triage-actions">
+        <button class="tbtn pass" id="tbtn-pass" disabled>✕ Pass</button>
+        <button class="tbtn info" id="tbtn-info" disabled>? Hold — more info</button>
+        <button class="tbtn advance" id="tbtn-advance" disabled>✓ Advance</button>
+      </div>
+      <div class="triage-progress" id="triage-progress"></div>
+      <p class="client-note">Decisions made in Triage mode are recorded locally in this browser tab only, for
+      this demo session — never sent anywhere. A real deployment's decisions go through CANDOR-10's own
+      append-only gateway, exactly like the historical entries shown in each candidate's Decision History below.</p>
+    </div>
+  </div>
+
+  <div id="view-directory" class="view" role="tabpanel">
+    <div class="dir-controls">
+      <input type="text" id="q" placeholder="Search candidate ID or source…" aria-label="Search candidates" />
+      <select id="fInterp" aria-label="Filter by interpretation">
+        <option value="">All interpretations</option>
+        <option value="STRONG">STRONG CANDIDATE</option>
+        <option value="PROMISING">PROMISING - VERIFY</option>
+        <option value="NOT A FIT">RELIABLY NOT A FIT</option>
+        <option value="INSUFFICIENT">INSUFFICIENT INFORMATION</option>
+      </select>
+      <select id="fFlag" aria-label="Filter by evidence flag">
+        <option value="">Any evidence status</option>
+        <option value="flagged">Low-confidence flagged</option>
+        <option value="clean">No flag</option>
+      </select>
+    </div>
+    <div class="dir-grid" id="dir-grid"></div>
+  </div>
+
+  <footer>
+    <p><strong>CANDOR-06 curated demo pool · 5 real candidates, all fictional (Master Instructions §14).</strong>
+    Scoring formula <span id="footer-formula" class="mono"></span> · Evidence Confidence formula v0.1 ·
+    interpretation threshold 60 · bias-audit layer CANDOR-05 v0.1. This page is a frozen, point-in-time
+    synthetic snapshot — it is not connected to any live system and will never update on its own.</p>
+    <p>CANDOR supports, and never replaces, human employment decisions. Nothing on this page is a certification
+    of legal or bias compliance, or a recommendation about any person (Master Instructions §8 / §13 / §26).</p>
+  </footer>
+</main>
+
+<div class="modal-overlay" id="modal-overlay">
+  <div class="modal" id="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <button class="close-btn" id="modal-close">✕ Close</button>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<script id="candor-pool" type="application/json">[{"id": "INTAKE-SYNTHETIC-LOADTEST-CANDI-1789763233393", "display": "SYNTH-LOADTEST-393", "source": "file-upload", "job_title": "JD-MERIDIAN-RSM-01", "match_score": 83, "evidence_confidence": 89, "formula_version": "CANDOR-04 scoring v0.9", "interpretation": "STRONG CANDIDATE FOR RECRUITER REVIEW", "factors": [{"key": "years_of_experience", "label": "Years of Experience", "used": true, "score": 0.8, "reason": null, "quote": "B2B software sales professional with 4 years of experience in SaaS account management"}, {"key": "skill_overlap", "label": "Required-Skill Overlap", "used": true, "score": 1, "reason": null, "quote": null}, {"key": "role_tenure_stability", "label": "Role Tenure Stability", "used": true, "score": 1, "reason": null, "quote": null}, {"key": "career_trajectory", "label": "Career Trajectory", "used": true, "score": 0.5, "reason": null, "quote": null}, {"key": "education_certification_match", "label": "Education / Certification Match", "used": false, "score": null, "reason": "the JD requires neither an education level nor a certification (both education_requirement and required_certifications extract as 'not specified') - factor not evaluated at all, per Section 7's own 'only where the job actually requires it' qualifier (new since CANDOR-04 v0.8)", "quote": null}, {"key": "portfolio_work_sample_match", "label": "Portfolio / Work-Sample Match", "used": false, "score": null, "reason": "candidate did not provide a portfolio or work sample (portfolio_or_work_sample extracts as 'insufficient information') - factor not evaluated at all, per Section 7's own 'where provided' qualifier (new since CANDOR-04 v0.9)", "quote": null}], "requirements": {"matched": ["salesforce", "hubspot"], "required_all": ["Salesforce", "HubSpot"], "excluded_unverified": []}, "reliability_flag": {"flag_version": "CANDOR-05 audit-flag v0.1", "threshold": 50, "evidence_confidence": 89, "low_evidence_confidence_flag": false, "flag_reason": "Evidence Confidence (89) meets the CANDOR-05 audit-flag v0.1 threshold of 50. No reliability concern flagged on this basis."}, "exclusion": {"permitted": ["total_years_experience_claimed", "key_skills", "education", "certifications"], "excluded": ["candidate_name", "contact_email", "most_recent_title", "most_recent_employer"], "no_leak": true, "leak_detail": []}, "audit_disclaimer": "This audit record is a diagnostic aid for the human reviewer who remains responsible for the hiring process. It is not, and must never be treated as, a certification of legal or bias compliance (CANDOR Master Instructions Section 8). No combination of these values authorizes rejecting, advancing, or contacting this candidate (Section 13/26).", "audited_at": "2026-09-18T20:27:20.460Z", "briefing": "Here's the CANDOR audit summary for this Regional Sales Manager applicant (candidate ID ending 1789763233393).\n\nThe record shows a Match Score of 83 and an Evidence Confidence of 89 \u2014 these two numbers should be read together, since the Match Score's reliability depends on how much of the underlying claim set was independently verified. In this case, the reliability flag was not triggered (confidence sits well above the system's 50-point threshold), so there's no systemic caveat about unverifiable claims here.\n\nOn the substance: the candidate claims 4 years of B2B/SaaS sales experience against a 5-year requirement (scored 0.8 on sufficiency), with the domain vocabulary in their experience matching the JD's requirement language. Their single listed role shows 4 years of tenure, above the 2-year stability threshold. Career trajectory scored lower (0.5) \u2014 their most recent title rank (2) sits below the required title rank (4) for this role. On skills, the JD's CRM requirement (Salesforce or HubSpot) was fully satisfied, with both listed on the candidate's side plus \"consultative selling\" as an additional skill not counted toward the requirement. Education and portfolio factors were not evaluated at all, since the JD didn't specify requirements there and no work sample was provided.\n\nThe internal classification attached to this record reflects that both scores fall above the system's threshold for that category \u2014 that's a description of where the numbers land, not a judgment on the person. This briefing is a diagnostic aid only, not a compliance certification, and nothing here authorizes any hiring decision on its own; a human reviewer should examine the underlying claims directly.", "decisions": []}, {"id": "APPFORM-MORGAN-TAYLOR-REED-SYNTH-1789769910723", "display": "MORGAN-TAYLOR-REED", "source": "application-form", "job_title": "JD-MERIDIAN-RSM-01", "match_score": 20, "evidence_confidence": 100, "formula_version": "CANDOR-04 scoring v0.9", "interpretation": "RELIABLY NOT A FIT FOR THIS ROLE", "factors": [{"key": "years_of_experience", "label": "Years of Experience", "used": true, "score": 0, "reason": null, "quote": "6"}, {"key": "skill_overlap", "label": "Required-Skill Overlap", "used": true, "score": 1, "reason": null, "quote": null}, {"key": "role_tenure_stability", "label": "Role Tenure Stability", "used": true, "score": 0, "reason": null, "quote": null}, {"key": "career_trajectory", "label": "Career Trajectory", "used": true, "score": 0, "reason": null, "quote": null}, {"key": "education_certification_match", "label": "Education / Certification Match", "used": false, "score": null, "reason": "the JD requires neither an education level nor a certification (both education_requirement and required_certifications extract as 'not specified') - factor not evaluated at all, per Section 7's own 'only where the job actually requires it' qualifier (new since CANDOR-04 v0.8)", "quote": null}, {"key": "portfolio_work_sample_match", "label": "Portfolio / Work-Sample Match", "used": true, "score": 0, "reason": null, "quote": null}], "requirements": {"matched": ["salesforce", "hubspot"], "required_all": ["Salesforce", "HubSpot"], "excluded_unverified": []}, "reliability_flag": {"flag_version": "CANDOR-05 audit-flag v0.1", "threshold": 50, "evidence_confidence": 100, "low_evidence_confidence_flag": false, "flag_reason": "Evidence Confidence (100) meets the CANDOR-05 audit-flag v0.1 threshold of 50. No reliability concern flagged on this basis."}, "exclusion": {"permitted": ["total_years_experience_claimed", "key_skills", "education", "certifications"], "excluded": ["candidate_name", "contact_email", "most_recent_title", "most_recent_employer"], "no_leak": true, "leak_detail": []}, "audit_disclaimer": "This audit record is a diagnostic aid for the human reviewer who remains responsible for the hiring process. It is not, and must never be treated as, a certification of legal or bias compliance (CANDOR Master Instructions Section 8). No combination of these values authorizes rejecting, advancing, or contacting this candidate (Section 13/26).", "audited_at": "2026-09-18T22:18:30.931Z", "briefing": "Here's the CANDOR audit summary for this Regional Sales Manager applicant.\n\nThe record shows a Match Score of 20 out of 100, alongside an Evidence Confidence of 100 out of 100. Both numbers should be read together: the Evidence Confidence here is high, meaning the claims feeding into the score were largely verifiable against the source material, so the low Match Score is not attributable to missing or unverifiable data. The reliability flag on this record is not triggered \u2014 Evidence Confidence is at the system's threshold, so there's no separate low-confidence caveat to raise here.\n\nLooking at what drove the Match Score: the candidate claims 6 years of experience against a 5-year requirement, and their skills list includes Salesforce and HubSpot, which satisfies the CRM requirement. Tenure stability (3 years in their most recent role) also scored well on sufficiency. However, across several factors \u2014 years of experience, tenure stability, career trajectory, and portfolio/work-sample match \u2014 the domain-relevance component scored 0, meaning the system found no shared B2B/software/SaaS/sales vocabulary between the candidate's background and the job's stated domain requirements. Career trajectory also showed the most recent title ranked below the required title rank.\n\nThe record's internal classification reflects that the Match Score falls well below the system's 60-point interpretation threshold, while Evidence Confidence sits above it \u2014 a specific numeric pattern, not a judgment on the person.\n\nPer CANDOR policy, this is a diagnostic aid only, not a compliance certification, and these numbers alone don't authorize any hiring decision \u2014 a human reviewer should examine the underlying claims directly.", "decisions": []}, {"id": "APPFORM-DREW-ALEX-QUINN-SYNTHETI-1789770177567", "display": "DREW-ALEX-QUINN", "source": "application-form", "job_title": "JD-MERIDIAN-RSM-01", "match_score": 94, "evidence_confidence": 75, "formula_version": "CANDOR-04 scoring v0.9", "interpretation": "STRONG CANDIDATE FOR RECRUITER REVIEW", "factors": [{"key": "years_of_experience", "label": "Years of Experience", "used": true, "score": 1, "reason": null, "quote": "6 years of experience with skills including B2B Software Sales, Salesforce, HubSpot, SaaS Sales Strategy"}, {"key": "skill_overlap", "label": "Required-Skill Overlap", "used": true, "score": 1, "reason": null, "quote": null}, {"key": "role_tenure_stability", "label": "Role Tenure Stability", "used": true, "score": 1, "reason": null, "quote": null}, {"key": "career_trajectory", "label": "Career Trajectory", "used": true, "score": 0.75, "reason": null, "quote": null}, {"key": "education_certification_match", "label": "Education / Certification Match", "used": false, "score": null, "reason": "the JD requires neither an education level nor a certification (both education_requirement and required_certifications extract as 'not specified') - factor not evaluated at all, per Section 7's own 'only where the job actually requires it' qualifier (new since CANDOR-04 v0.8)", "quote": null}, {"key": "portfolio_work_sample_match", "label": "Portfolio / Work-Sample Match", "used": false, "score": null, "reason": "candidate did not provide a portfolio or work sample (portfolio_or_work_sample extracts as 'insufficient information') - factor not evaluated at all, per Section 7's own 'where provided' qualifier (new since CANDOR-04 v0.9)", "quote": null}], "requirements": {"matched": ["salesforce", "hubspot"], "required_all": ["Salesforce", "HubSpot"], "excluded_unverified": []}, "reliability_flag": {"flag_version": "CANDOR-05 audit-flag v0.1", "threshold": 50, "evidence_confidence": 75, "low_evidence_confidence_flag": false, "flag_reason": "Evidence Confidence (75) meets the CANDOR-05 audit-flag v0.1 threshold of 50. No reliability concern flagged on this basis."}, "exclusion": {"permitted": ["total_years_experience_claimed", "key_skills", "education", "certifications"], "excluded": ["candidate_name", "contact_email", "most_recent_title", "most_recent_employer"], "no_leak": true, "leak_detail": []}, "audit_disclaimer": "This audit record is a diagnostic aid for the human reviewer who remains responsible for the hiring process. It is not, and must never be treated as, a certification of legal or bias compliance (CANDOR Master Instructions Section 8). No combination of these values authorizes rejecting, advancing, or contacting this candidate (Section 13/26).", "audited_at": "2026-09-18T22:22:57.745Z", "briefing": "Here's the audit summary for this Regional Sales Manager applicant (candidate ID APPFORM-DREW-ALEX-QUINN-SYNTHETI-1789770177567).\n\nThe record shows a Match Score of 94 and an Evidence Confidence score of 75, out of 100 each \u2014 both should be read together, since the Match Score's reliability is bounded by how well the underlying claims could be verified. In this case, the reliability flag itself was not triggered (it only activates below an Evidence Confidence of 50), so this candidate doesn't carry that specific low-confidence warning.\n\nOn the inputs behind the Match Score: years of experience (6 claimed vs. 5 required) scored at full sufficiency and domain relevance, tied to a source quote referencing B2B/SaaS software sales background. Skill overlap was fully satisfied \u2014 the JD's CRM requirement (Salesforce or HubSpot) was matched against both skills as listed by the candidate. Role tenure showed one considered entry (3 years) exceeding the 2-year stability threshold. Career trajectory scored lower (0.75) because the most recent title rank (3) falls short of the required rank (4) for this role, with no progression component calculated. Education/certification and portfolio/work-sample factors were not evaluated at all, since the JD didn't specify requirements there and no portfolio was submitted.\n\nThe exclusion check confirmed no excluded personal fields (name, email, prior title, employer) leaked into scoring.\n\nPlease treat this as a diagnostic aid only \u2014 not a compliance certification, and not a basis by itself for any hiring decision. A human reviewer should examine the underlying claims directly before acting on these numbers.", "decisions": [{"decision": "HOLD_MORE_INFO_NEEDED", "decided_at": "2026-09-19T04:51:20.255Z"}]}, {"id": "ATSEXPORT-CASEY-LOGAN-PARKER-1789791062110-0", "display": "CASEY-LOGAN-PARKER", "source": "ats-export", "job_title": "JD-MERIDIAN-RSM-01", "match_score": 100, "evidence_confidence": 100, "formula_version": "CANDOR-04 scoring v0.9", "interpretation": "STRONG CANDIDATE FOR RECRUITER REVIEW", "factors": [{"key": "years_of_experience", "label": "Years of Experience", "used": true, "score": 1, "reason": null, "quote": "Driven B2B software sales professional with 6 years of experience in SaaS sales, territory growth, and CRM-led account management."}, {"key": "skill_overlap", "label": "Required-Skill Overlap", "used": true, "score": 1, "reason": null, "quote": null}, {"key": "role_tenure_stability", "label": "Role Tenure Stability", "used": true, "score": 1, "reason": null, "quote": null}, {"key": "career_trajectory", "label": "Career Trajectory", "used": true, "score": 1, "reason": null, "quote": null}, {"key": "education_certification_match", "label": "Education / Certification Match", "used": false, "score": null, "reason": "the JD requires neither an education level nor a certification (both education_requirement and required_certifications extract as 'not specified') - factor not evaluated at all, per Section 7's own 'only where the job actually requires it' qualifier (new since CANDOR-04 v0.8)", "quote": null}, {"key": "portfolio_work_sample_match", "label": "Portfolio / Work-Sample Match", "used": false, "score": null, "reason": "candidate did not provide a portfolio or work sample (portfolio_or_work_sample extracts as 'insufficient information') - factor not evaluated at all, per Section 7's own 'where provided' qualifier (new since CANDOR-04 v0.9)", "quote": null}], "requirements": {"matched": ["salesforce", "hubspot"], "required_all": ["Salesforce", "HubSpot"], "excluded_unverified": []}, "reliability_flag": {"flag_version": "CANDOR-05 audit-flag v0.1", "threshold": 50, "evidence_confidence": 100, "low_evidence_confidence_flag": false, "flag_reason": "Evidence Confidence (100) meets the CANDOR-05 audit-flag v0.1 threshold of 50. No reliability concern flagged on this basis."}, "exclusion": {"permitted": ["total_years_experience_claimed", "key_skills", "education", "certifications"], "excluded": ["candidate_name", "contact_email", "most_recent_title", "most_recent_employer"], "no_leak": true, "leak_detail": []}, "audit_disclaimer": "This audit record is a diagnostic aid for the human reviewer who remains responsible for the hiring process. It is not, and must never be treated as, a certification of legal or bias compliance (CANDOR Master Instructions Section 8). No combination of these values authorizes rejecting, advancing, or contacting this candidate (Section 13/26).", "audited_at": "2026-09-19T04:11:06.982Z", "briefing": "Here's the CANDOR audit summary for this Regional Sales Manager candidate (ID ATSEXPORT-CASEY-LOGAN-PARKER-1789791062110-0).\n\nMatch Score: 100 and Evidence Confidence: 100 \u2014 both figures should be read together, since the Match Score's meaning depends entirely on how well it's backed by verified evidence, and in this case the evidence backing is complete.\n\nOn the underlying inputs: the record shows 6 years of experience against a 5-year requirement, with domain vocabulary (b2b, software, saas, sales) overlapping between the candidate's resume and the JD. Role tenure across two positions averaged 3 years, above the 2-year stability threshold. Career trajectory matched the required title rank. On skills, the JD's CRM requirement (Salesforce or HubSpot) was satisfied, with no required skills excluded as unverified. Two factors \u2014 education/certification match and portfolio/work sample match \u2014 were not evaluated at all, since the JD didn't specify requirements there and no portfolio was provided.\n\nThe reliability flag on this record is not triggered (evidence confidence sits well above the 50-point threshold), so there's no indication here of unverifiable claims requiring extra scrutiny before relying on the Match Score.\n\nThe record includes an internal classification noting both scores fall above the system's threshold for that category \u2014 this is a computed label describing where the numbers land, not a recommendation. This briefing and the underlying audit are diagnostic aids only, not a certification of legal or bias compliance, and nothing here authorizes rejecting, advancing, or contacting this candidate \u2014 that determination remains with the human reviewer.", "decisions": []}, {"id": "APPFORM-REGRESSION-CHECK-CANDIDA-1789791170609", "display": "REGRESSION-CHECK-CANDIDA", "source": "application-form", "job_title": "JD-MERIDIAN-RSM-01", "match_score": 100, "evidence_confidence": 50, "formula_version": "CANDOR-04 scoring v0.9", "interpretation": "PROMISING - VERIFY BEFORE PRIORITIZING", "factors": [{"key": "years_of_experience", "label": "Years of Experience", "used": true, "score": 1, "reason": null, "quote": "5 years of experience with skills including B2B Software Sales, Salesforce"}, {"key": "skill_overlap", "label": "Required-Skill Overlap", "used": true, "score": 1, "reason": null, "quote": null}, {"key": "role_tenure_stability", "label": "Role Tenure Stability", "used": false, "score": null, "reason": "no employment-history entry had a duration CANDOR-04 could parse (missing, unverified, or unparseable) - factor excluded from scoring, not zeroed (new since CANDOR-04 v0.4)", "quote": null}, {"key": "career_trajectory", "label": "Career Trajectory", "used": false, "score": null, "reason": "no employment-history entry had an independently-grounded title - factor excluded from scoring, not zeroed (new since CANDOR-04 v0.7)", "quote": null}, {"key": "education_certification_match", "label": "Education / Certification Match", "used": false, "score": null, "reason": "the JD requires neither an education level nor a certification (both education_requirement and required_certifications extract as 'not specified') - factor not evaluated at all, per Section 7's own 'only where the job actually requires it' qualifier (new since CANDOR-04 v0.8)", "quote": null}, {"key": "portfolio_work_sample_match", "label": "Portfolio / Work-Sample Match", "used": false, "score": null, "reason": "candidate did not provide a portfolio or work sample (portfolio_or_work_sample extracts as 'insufficient information') - factor not evaluated at all, per Section 7's own 'where provided' qualifier (new since CANDOR-04 v0.9)", "quote": null}], "requirements": {"matched": ["salesforce"], "required_all": ["Salesforce", "HubSpot"], "excluded_unverified": []}, "reliability_flag": {"flag_version": "CANDOR-05 audit-flag v0.1", "threshold": 50, "evidence_confidence": 50, "low_evidence_confidence_flag": false, "flag_reason": "Evidence Confidence (50) meets the CANDOR-05 audit-flag v0.1 threshold of 50. No reliability concern flagged on this basis."}, "exclusion": {"permitted": ["total_years_experience_claimed", "key_skills", "education", "certifications"], "excluded": ["candidate_name", "contact_email", "most_recent_title", "most_recent_employer"], "no_leak": false, "leak_detail": [{"field": "most_recent_title", "value_hash": "3264f2b11cae1b814296e5aa8930089fd3ccd1bd1b938589c6d8932ac6319c41", "value_hash_algorithm_version": "v1.0", "leaked_into_scoring_output": true}, {"field": "most_recent_employer", "value_hash": "3264f2b11cae1b814296e5aa8930089fd3ccd1bd1b938589c6d8932ac6319c41", "value_hash_algorithm_version": "v1.0", "leaked_into_scoring_output": true}]}, "audit_disclaimer": "This audit record is a diagnostic aid for the human reviewer who remains responsible for the hiring process. It is not, and must never be treated as, a certification of legal or bias compliance (CANDOR Master Instructions Section 8). No combination of these values authorizes rejecting, advancing, or contacting this candidate (Section 13/26).", "audited_at": "2026-09-19T04:12:50.760Z", "briefing": "Here's the audit summary for this Regional Sales Manager applicant (Meridian Software Group).\n\nThe record shows a Match Score of 100 and an Evidence Confidence score of 50, and these two numbers need to be read together rather than the Match Score standing on its own. The perfect Match Score comes from just two factors the system was able to score: years of experience and skill overlap. On experience, the candidate's claimed 5 years lines up exactly with the JD's 5+ year requirement, with shared domain language (b2b, software, sales) supporting the match. On skills, the JD required proficiency in Salesforce or HubSpot, and the candidate's listed Salesforce skill satisfied that requirement. Several other factors the system normally considers - role tenure stability, career trajectory, education/certification match, and portfolio/work samples - were not used at all, either because the resume didn't contain parseable data for them or the JD didn't require them, not because the candidate scored poorly on them.\n\nSeparately, note that the reliability flag on this record is not triggered (Evidence Confidence of 50 meets the system's threshold), but that's a close call worth knowing, not a strong reassurance - the confidence score itself is a plain \"50 out of 100,\" reflecting real gaps in what could be independently verified from the resume text.\n\nThis briefing is a diagnostic aid only, not a certification of legal or bias compliance, and these numbers alone don't authorize any hiring decision - a human reviewer should examine the underlying claims directly before acting.", "decisions": [{"decision": "HOLD_MORE_INFO_NEEDED", "decided_at": "2026-09-19T04:38:23.489Z"}]}]</script>
+<script>
+(function(){
+  var POOL = JSON.parse(document.getElementById('candor-pool').textContent);
+  var SNAPSHOT_TIME = "2026-09-19T06:26:25Z";
+  var FORMULA = "CANDOR-04 scoring v0.9";
+  document.getElementById('footer-formula').textContent = FORMULA;
+  document.getElementById('snapshot-line').textContent =
+    'Point-in-time synthetic snapshot generated ' + SNAPSHOT_TIME.replace('T',' ').replace('Z',' UTC') +
+    ' from real, currently-persisted CANDOR-08 records. Not a live feed.';
+
+  var evidenceSeen = {};
+  var clientDecisions = {}; // candidate_id -> decision string, this-session only
+  var triageIdx = 0;
+
+  function interpClass(i){
+    if(i.indexOf('STRONG')===0) return 'green';
+    if(i.indexOf('RELIABLY')===0) return 'red';
+    if(i.indexOf('PROMISING')===0) return 'amber';
+    return 'cyan';
+  }
+
+  // ---- Stats strip ----
+  function renderStats(){
+    var strip = document.getElementById('stats-strip');
+    strip.innerHTML = '';
+    var strong = POOL.filter(function(c){return c.interpretation.indexOf('STRONG')===0;}).length;
+    var notfit = POOL.filter(function(c){return c.interpretation.indexOf('RELIABLY')===0;}).length;
+    var flagged = POOL.filter(function(c){return c.reliability_flag.low_evidence_confidence_flag;}).length;
+    var decided = Object.keys(clientDecisions).length;
+    [
+      ['Pool Size', POOL.length],
+      ['Strong Candidates', strong],
+      ['Reliably Not A Fit', notfit],
+      ['Low-Confidence Flag', flagged],
+      ['Your Decisions (this session)', decided]
+    ].forEach(function(p){
+      var d = document.createElement('div'); d.className='stat-tile';
+      d.innerHTML = '<div class="label">'+p[0]+'</div><div class="value">'+p[1]+'</div>';
+      strip.appendChild(d);
+    });
+  }
+
+  // ---- Requirement matched / missing / uncertain, from alternative-set structure ----
+  function requirementSections(c){
+    // This JD has one CRM alternative-slot (Salesforce OR HubSpot). We report it generically:
+    // matched = candidate's matched_skills; the other, unconfirmed alternative is listed as
+    // "not needed (OR-group already satisfied)" rather than fabricated as "missing".
+    var matched = c.requirements.matched;
+    var required = c.requirements.required_all;
+    var unconfirmedAlternatives = required.filter(function(r){ return matched.indexOf(r.toLowerCase())===-1; });
+    var uncertain = c.requirements.excluded_unverified;
+    return {matched: matched, unconfirmed: unconfirmedAlternatives, uncertain: uncertain};
+  }
+
+  // ---- Card content (shared by triage + modal) ----
+  function scorePairHTML(c){
+    return '<div class="score-pair">'+
+      '<div class="score-box ms"><div class="lbl">Match Score</div><div class="num">'+c.match_score+'</div></div>'+
+      '<div class="score-box ec"><div class="lbl">Evidence Confidence</div><div class="num">'+c.evidence_confidence+'</div></div>'+
+      '</div><div class="score-note">Two independent measurements — never merged into one number (Master Instructions §6)</div>';
+  }
+
+  function tcardHTML(c){
+    var req = requirementSections(c);
+    var reqHTML = '<div class="req-lists">'+
+      '<div class="req-col matched"><h4>Matched</h4><ul>'+(req.matched.length?req.matched.map(function(s){return '<li>'+s+'</li>';}).join(''):'<li>none</li>')+'</ul></div>'+
+      '<div class="req-col uncertain"><h4>Excluded — Unverified</h4><ul>'+(req.uncertain.length?req.uncertain.map(function(s){return '<li>'+s+'</li>';}).join(''):'<li>none flagged on this record</li>')+'</ul></div>'+
+      '</div>';
+    var flagHTML = c.reliability_flag.low_evidence_confidence_flag
+      ? '<div class="flag-note warn">⚠ Low Evidence Confidence — reliability flag set. '+c.reliability_flag.flag_reason+'</div>'
+      : '<div class="flag-note ok">'+c.reliability_flag.flag_reason+'</div>';
+    return '<div class="src">'+c.source+' · audited '+c.audited_at.slice(0,10)+'</div>'+
+      '<div class="id">'+c.display+'</div>'+
+      scorePairHTML(c)+
+      '<div style="text-align:center;"><span class="interp-badge '+interpClass(c.interpretation)+'">'+c.interpretation+'</span></div>'+
+      reqHTML + flagHTML +
+      '<button class="evidence-btn" data-open-evidence="'+c.id+'">View Full Evidence &amp; Briefing →</button>';
+  }
+
+  function renderTriage(){
+    var stack = document.getElementById('card-stack');
+    stack.innerHTML = '';
+    document.getElementById('triage-progress').textContent = 'Candidate '+Math.min(triageIdx+1,POOL.length)+' of '+POOL.length;
+    if(triageIdx >= POOL.length){
+      stack.innerHTML = '<div class="tcard" style="display:flex;align-items:center;justify-content:center;text-align:center;"><div><p style="font-family:var(--font-d);font-size:18px;">Pool reviewed.</p><p class="mono" style="font-size:12px;color:var(--txt-dim);">Switch to Directory mode to revisit any candidate.</p></div></div>';
+      updateTriageButtons();
+      return;
+    }
+    var c = POOL[triageIdx];
+    var card = document.createElement('div'); card.className='tcard'; card.id='tcard-'+c.id;
+    card.innerHTML = tcardHTML(c);
+    stack.appendChild(card);
+    card.querySelector('[data-open-evidence]').addEventListener('click', function(){ openModal(c.id, true); });
+    updateTriageButtons();
+    attachDrag(card, c.id);
+  }
+
+  function updateTriageButtons(){
+    var c = POOL[triageIdx];
+    var seen = c ? !!evidenceSeen[c.id] : false;
+    ['tbtn-pass','tbtn-info','tbtn-advance'].forEach(function(id){
+      document.getElementById(id).disabled = !c || !seen;
+    });
+  }
+
+  function decide(candidateId, decision){
+    clientDecisions[candidateId] = decision;
+    triageIdx++;
+    renderStats();
+    renderTriage();
+  }
+
+  document.getElementById('tbtn-pass').addEventListener('click', function(){ var c=POOL[triageIdx]; if(c) decide(c.id,'PASS (this-session demo only)'); });
+  document.getElementById('tbtn-info').addEventListener('click', function(){ var c=POOL[triageIdx]; if(c) decide(c.id,'HOLD_MORE_INFO_NEEDED (this-session demo only)'); });
+  document.getElementById('tbtn-advance').addEventListener('click', function(){ var c=POOL[triageIdx]; if(c) decide(c.id,'ADVANCE (this-session demo only)'); });
+
+  function attachDrag(card, id){
+    var startX=null, startY=null, dx=0;
+    function down(x,y){ startX=x; startY=y; card.style.transition='none'; }
+    function move(x,y){
+      if(startX===null) return;
+      dx = x-startX;
+      card.style.transform = 'translateX('+dx+'px) rotate('+(dx/20)+'deg)';
+    }
+    function up(){
+      if(startX===null) return;
+      card.style.transition='transform .2s';
+      if(Math.abs(dx) > 120 && evidenceSeen[id]){
+        card.style.transform = 'translateX('+(dx>0?600:-600)+'px) rotate('+(dx>0?30:-30)+'deg)';
+        setTimeout(function(){ decide(id, dx>0 ? 'ADVANCE (this-session demo only)' : 'PASS (this-session demo only)'); }, 180);
+      } else {
+        card.style.transform = 'translateX(0) rotate(0)';
+      }
+      startX=null; dx=0;
+    }
+    card.addEventListener('mousedown', function(e){ down(e.clientX,e.clientY); });
+    window.addEventListener('mousemove', function(e){ move(e.clientX,e.clientY); });
+    window.addEventListener('mouseup', up);
+    card.addEventListener('touchstart', function(e){ var t=e.touches[0]; down(t.clientX,t.clientY); }, {passive:true});
+    card.addEventListener('touchmove', function(e){ var t=e.touches[0]; move(t.clientX,t.clientY); }, {passive:true});
+    card.addEventListener('touchend', up);
+  }
+
+  // ---- Directory mode ----
+  function renderDirectory(){
+    var q = document.getElementById('q').value.trim().toLowerCase();
+    var fi = document.getElementById('fInterp').value;
+    var ff = document.getElementById('fFlag').value;
+    var grid = document.getElementById('dir-grid');
+    grid.innerHTML = '';
+    POOL.filter(function(c){
+      if(q && c.id.toLowerCase().indexOf(q)===-1 && c.source.toLowerCase().indexOf(q)===-1) return false;
+      if(fi && c.interpretation.indexOf(fi)===-1) return false;
+      if(ff==='flagged' && !c.reliability_flag.low_evidence_confidence_flag) return false;
+      if(ff==='clean' && c.reliability_flag.low_evidence_confidence_flag) return false;
+      return true;
+    }).forEach(function(c){
+      var card = document.createElement('div'); card.className='dcard'; card.tabIndex=0;
+      card.innerHTML = '<div class="id">'+c.display+' · '+c.source+'</div>'+
+        '<div class="mini-scores"><span>MS <b>'+c.match_score+'</b></span><span>EC <b>'+c.evidence_confidence+'</b></span></div>'+
+        '<div class="interp" style="color:var(--'+interpClass(c.interpretation)+')">'+c.interpretation+'</div>';
+      card.addEventListener('click', function(){ openModal(c.id, false); });
+      card.addEventListener('keydown', function(e){ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); openModal(c.id,false); } });
+      grid.appendChild(card);
+    });
+  }
+  document.getElementById('q').addEventListener('input', renderDirectory);
+  document.getElementById('fInterp').addEventListener('change', renderDirectory);
+  document.getElementById('fFlag').addEventListener('change', renderDirectory);
+
+  // ---- Mode switching ----
+  function setMode(mode){
+    document.getElementById('view-triage').classList.toggle('active', mode==='triage');
+    document.getElementById('view-directory').classList.toggle('active', mode==='directory');
+    document.getElementById('btn-triage').setAttribute('aria-pressed', mode==='triage');
+    document.getElementById('btn-directory').setAttribute('aria-pressed', mode==='directory');
+    if(mode==='directory') renderDirectory();
+  }
+  document.getElementById('btn-triage').addEventListener('click', function(){ setMode('triage'); });
+  document.getElementById('btn-directory').addEventListener('click', function(){ setMode('directory'); });
+
+  // ---- Evidence modal ----
+  function evidenceBody(c){
+    var rows = c.factors.map(function(f){
+      var scoreTxt = f.used ? (f.score===null||f.score===undefined ? '—' : (Math.round(f.score*100)+'%')) : 'not used';
+      var extra = f.quote ? '<div class="factor-quote">"'+f.quote+'"</div>' : (f.reason ? '<div class="factor-quote">'+f.reason+'</div>' : '');
+      return '<div class="factor-row'+(f.used?'':' unused')+'"><div class="fname">'+f.label+extra+'</div><div class="fscore">'+scoreTxt+'</div></div>';
+    }).join('');
+    var usedCount = c.factors.filter(function(f){return f.used;}).length;
+    return '<h3>Factor-Level Scoring Breakdown ('+usedCount+' / '+c.factors.length+' factors used, of 7 permitted by Master Instructions §7)</h3>'+rows;
+  }
+
+  function exclusionBody(c){
+    var leakLine = c.exclusion.no_leak
+      ? '<span class="leak-ok">✓ no_excluded_field_leaked: true</span>'
+      : '<span class="leak-bad">⚠ no_excluded_field_leaked: false — '+c.exclusion.leak_detail.map(function(d){return d.field;}).join(', ')+
+        ' text was found inside this record\'s own verification-evidence quote(s). Believed to be a false positive in the leak-check itself (a legitimately-quoted resume sentence happened to contain excluded-field words), not an actual scoring input — flagged transparently rather than hidden. See CANDOR-02-Build-Log.md §18.5 and the project\'s System Review for the full disclosure.</span>';
+    return '<h3>Protected / Excluded-Field Confirmation</h3>'+
+      '<div class="excl-grid">'+
+      '<div class="excl-col"><h4>Used In Scoring</h4>'+c.exclusion.permitted.map(function(f){return '<div>'+f+'</div>';}).join('')+'</div>'+
+      '<div class="excl-col"><h4>Present But Excluded</h4>'+c.exclusion.excluded.map(function(f){return '<div>'+f+'</div>';}).join('')+'</div>'+
+      '</div><div style="margin-top:10px;">'+leakLine+'</div>';
+  }
+
+  function decisionHistoryBody(c){
+    var real = c.decisions.map(function(d){
+      return '<li><span>'+d.decision+'</span><span>'+d.decided_at.replace('T',' ').replace('Z',' UTC')+' · real, CANDOR-10</span></li>';
+    });
+    var clientDec = clientDecisions[c.id] ? ['<li><span>'+clientDecisions[c.id]+'</span><span>this browser session · not persisted</span></li>'] : [];
+    var all = real.concat(clientDec);
+    return '<h3>Decision History (append-only, CANDOR-10)</h3>'+
+      (all.length ? '<ul class="decision-history-list">'+all.join('')+'</ul>' : '<p class="mono" style="font-size:12px;color:var(--txt-dim);">No decision recorded yet for this candidate.</p>')+
+      '<p class="mono" style="font-size:11px;color:var(--txt-dim);margin-top:8px;">A changed decision is always a new appended record, never an overwrite — matching this candidate\'s real underlying data.</p>';
+  }
+
+  function openModal(candidateId, markSeen){
+    var c = POOL.filter(function(x){return x.id===candidateId;})[0];
+    if(!c) return;
+    if(markSeen) evidenceSeen[candidateId] = true;
+    var body = document.getElementById('modal-body');
+    body.innerHTML =
+      '<h2 id="modal-title">'+c.display+' <span class="mono" style="font-size:11px;color:var(--txt-dim);">· '+c.source+'</span></h2>'+
+      '<p class="mono" style="font-size:11px;color:var(--txt-dim);">'+c.id+' · formula '+c.formula_version+' · audited '+c.audited_at.replace('T',' ').replace('Z',' UTC')+'</p>'+
+      scorePairHTML(c)+
+      '<div style="text-align:center;margin-top:8px;"><span class="interp-badge '+interpClass(c.interpretation)+'">'+c.interpretation+'</span></div>'+
+      '<h3>Recruiter Briefing (CANDOR-07, Claude Sonnet 5, real generated text)</h3>'+
+      '<div class="briefing-text">'+c.briefing.replace(/</g,'&lt;')+'</div>'+
+      evidenceBody(c)+
+      exclusionBody(c)+
+      decisionHistoryBody(c)+
+      '<div class="disclaimer-box">'+c.audit_disclaimer+'</div>'+
+      '<div class="review-actions">'+
+        '<button class="pass" data-decide="PASS">✕ Pass</button>'+
+        '<button class="info" data-decide="HOLD_MORE_INFO_NEEDED">? Hold — more info</button>'+
+        '<button class="advance" data-decide="ADVANCE">✓ Advance</button>'+
+      '</div>'+
+      '<p class="mono" style="font-size:10.5px;color:var(--txt-dim);margin-top:8px;">Review actions here update this session\'s local counters only — this static demo page has no backend to write to.</p>';
+    body.querySelectorAll('[data-decide]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        clientDecisions[c.id] = btn.getAttribute('data-decide')+' (this-session demo only)';
+        renderStats();
+        closeModal();
+      });
+    });
+    document.getElementById('modal-overlay').classList.add('open');
+    document.getElementById('modal-close').focus();
+  }
+  function closeModal(){
+    document.getElementById('modal-overlay').classList.remove('open');
+    updateTriageButtons();
+  }
+  document.getElementById('modal-close').addEventListener('click', closeModal);
+  document.getElementById('modal-overlay').addEventListener('click', function(e){ if(e.target===this) closeModal(); });
+  document.addEventListener('keydown', function(e){ if(e.key==='Escape') closeModal(); });
+
+  renderStats();
+  renderTriage();
+})();
+</script>
+</body>
+</html>

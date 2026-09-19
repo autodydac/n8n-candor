@@ -1,0 +1,447 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>CANDOR // OPS HUD</title>
+<meta name="description" content="CANDOR operational command center — a point-in-time synthetic snapshot of pipeline health, intake, scoring, and decision activity." />
+<style>
+  :root{
+    --bg:#050810; --bg2:#0a0f1c; --panel:#0b1120cc;
+    --cyan:#2fe3ff; --cyan-dim:#0f5a6b; --amber:#ffb020; --green:#3ee08a; --red:#ff4f63;
+    --line:#1c2a3f; --line-bright:#2fe3ff55;
+    --txt:#d8ecf5; --txt-dim:#7c93a8; --txt-faint:#4c5f72;
+    --font-d:'Orbitron',sans-serif; --font-b:'Rajdhani',sans-serif; --font-m:'Share Tech Mono',monospace;
+    --focus: 2px solid #ffb020;
+  }
+  @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@600;700;900&family=Rajdhani:wght@400;500;600;700&family=Share+Tech+Mono&display=swap');
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:var(--bg);color:var(--txt);}
+  body{
+    font-family:var(--font-b); font-size:16px; line-height:1.4;
+    min-height:100vh; position:relative; overflow-x:hidden;
+  }
+  body::before{
+    content:""; position:fixed; inset:0; pointer-events:none; z-index:1;
+    background:repeating-linear-gradient(0deg, rgba(255,255,255,0.02) 0px, rgba(255,255,255,0.02) 1px, transparent 1px, transparent 3px);
+    mix-blend-mode:overlay;
+  }
+  body::after{
+    content:""; position:fixed; inset:0; pointer-events:none; z-index:1;
+    background:radial-gradient(ellipse at center, transparent 40%, #000 130%);
+    opacity:.55;
+  }
+  @media (prefers-reduced-motion: reduce){ *{animation-duration:.001ms !important; animation-iteration-count:1 !important; transition-duration:.001ms !important; scroll-behavior:auto !important;} }
+
+  a{color:var(--cyan);}
+  a:focus-visible, button:focus-visible, [tabindex]:focus-visible, summary:focus-visible{ outline:var(--focus); outline-offset:2px; }
+  .skip-link{position:absolute; left:-9999px; top:0; background:var(--amber); color:#111; padding:.5em 1em; z-index:100; font-family:var(--font-m);}
+  .skip-link:focus{left:1em; top:1em;}
+
+  .mono{font-family:var(--font-m);}
+  .wrap{max-width:1400px; margin:0 auto; padding:0 20px 60px; position:relative; z-index:2;}
+
+  header.topbar{
+    display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between;
+    padding:16px 20px; border-bottom:1px solid var(--line); background:linear-gradient(180deg,#0a0f1cee,#05081000);
+    position:sticky; top:0; z-index:20; backdrop-filter:blur(6px);
+  }
+  .brand{display:flex; align-items:center; gap:12px;}
+  .brand .mark{
+    width:34px; height:34px; border:2px solid var(--cyan); border-radius:6px; display:grid; place-items:center;
+    color:var(--cyan); font-family:var(--font-d); font-weight:700; font-size:13px; box-shadow:0 0 14px #2fe3ff44;
+  }
+  .brand h1{font-family:var(--font-d); font-size:18px; letter-spacing:.08em; margin:0; color:var(--txt);}
+  .brand .sub{font-family:var(--font-m); font-size:11px; color:var(--txt-dim); letter-spacing:.05em;}
+  .status-cluster{display:flex; gap:18px; flex-wrap:wrap; font-family:var(--font-m); font-size:12px; color:var(--txt-dim);}
+  .status-cluster .item{display:flex; align-items:center; gap:6px;}
+  .dot{width:8px; height:8px; border-radius:50%; background:var(--green); box-shadow:0 0 8px var(--green); flex:none;}
+  .dot.amber{background:var(--amber); box-shadow:0 0 8px var(--amber);}
+  .dot.red{background:var(--red); box-shadow:0 0 8px var(--red);}
+
+  .snapshot-banner{
+    margin:16px 0 0; padding:10px 16px; border:1px solid var(--amber); border-radius:4px;
+    background:#ffb02014; color:var(--amber); font-family:var(--font-m); font-size:12.5px; line-height:1.5;
+  }
+  .snapshot-banner strong{color:#ffcf70;}
+  .snapshot-banner code{color:#ffe2a8;}
+
+  h2.section-title{
+    font-family:var(--font-d); font-size:13px; letter-spacing:.1em; color:var(--cyan); margin:0 0 12px;
+    display:flex; align-items:center; gap:10px;
+  }
+  h2.section-title::after{content:""; flex:1; height:1px; background:linear-gradient(90deg,var(--line-bright),transparent);}
+
+  .grid-wrap{margin-top:26px; display:grid; grid-template-columns:1fr; gap:22px;}
+  @media(min-width:980px){ .grid-wrap.two{grid-template-columns:1.15fr .85fr;} }
+
+  .panel{
+    position:relative; background:var(--panel); border:1px solid var(--line); border-radius:4px; padding:20px;
+  }
+  .panel::before,.panel::after,.panel .bl,.panel .br{
+    content:""; position:absolute; width:14px; height:14px; border-color:var(--cyan); border-style:solid; opacity:.7;
+  }
+  .panel::before{top:-1px; left:-1px; border-width:2px 0 0 2px;}
+  .panel::after{top:-1px; right:-1px; border-width:2px 2px 0 0;}
+  .panel .bl{bottom:-1px; left:-1px; border-width:0 0 2px 2px;}
+  .panel .br{bottom:-1px; right:-1px; border-width:0 2px 2px 0;}
+
+  .tel-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); gap:14px;}
+  .tel-tile{border:1px solid var(--line); border-radius:4px; padding:14px; background:#0a1220aa;}
+  .tel-tile .label{font-family:var(--font-m); font-size:10.5px; color:var(--txt-dim); text-transform:uppercase; letter-spacing:.08em;}
+  .tel-tile .value{font-family:var(--font-d); font-size:26px; color:var(--txt); margin-top:6px;}
+  .tel-tile .value.green{color:var(--green);} .tel-tile .value.amber{color:var(--amber);} .tel-tile .value.red{color:var(--red);} .tel-tile .value.cyan{color:var(--cyan);}
+  .tel-tile .sub{font-family:var(--font-m); font-size:11px; color:var(--txt-faint); margin-top:4px;}
+
+  .source-row{display:flex; flex-direction:column; gap:10px; margin-top:6px;}
+  .source-bar-wrap{display:flex; align-items:center; gap:10px; font-family:var(--font-m); font-size:12px;}
+  .source-bar-wrap .name{width:150px; color:var(--txt-dim); flex:none;}
+  .source-bar-track{flex:1; height:10px; background:#0a1220; border:1px solid var(--line); border-radius:3px; overflow:hidden;}
+  .source-bar-fill{display:block; height:100%; background:linear-gradient(90deg,var(--cyan-dim),var(--cyan));}
+  .source-bar-wrap .count{width:80px; text-align:right; color:var(--txt); flex:none;}
+
+  .pool-scroll{overflow-x:auto; -webkit-overflow-scrolling:touch;}
+  .pool-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:14px;}
+  .pool-card{border:1px solid var(--line); border-radius:4px; padding:12px; background:#0a1220aa;}
+  .pool-card .pid{font-family:var(--font-m); font-size:11px; color:var(--txt-dim); word-break:break-word;}
+  .pool-card .interp{font-family:var(--font-b); font-weight:600; font-size:13px; margin-top:6px;}
+  .gauge-row{display:flex; gap:14px; margin-top:10px; align-items:center;}
+  .gauge-label{font-family:var(--font-m); font-size:10.5px; color:var(--txt-dim);}
+
+  table{border-collapse:collapse; width:100%; font-family:var(--font-m); font-size:12.5px;}
+  th,td{text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top;}
+  th{color:var(--txt-dim); font-weight:600; text-transform:uppercase; font-size:10.5px; letter-spacing:.06em;}
+  .table-scroll{overflow-x:auto;}
+
+  .pill{display:inline-block; padding:2px 8px; border-radius:20px; font-family:var(--font-m); font-size:10.5px; border:1px solid currentColor;}
+  .pill.green{color:var(--green);} .pill.amber{color:var(--amber);} .pill.red{color:var(--red);} .pill.cyan{color:var(--cyan);}
+
+  .module-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:12px;}
+  .module-card{border:1px solid var(--line); border-radius:4px; padding:12px 14px; background:#0a1220aa;}
+  .module-card .row1{display:flex; justify-content:space-between; align-items:center; gap:8px;}
+  .module-card .id{font-family:var(--font-d); font-size:12.5px; color:var(--cyan);}
+  .module-card .name{font-size:13.5px; margin-top:4px; color:var(--txt);}
+  .module-card .detail{font-family:var(--font-m); font-size:11px; color:var(--txt-dim); margin-top:6px;}
+
+  .alert-list{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:8px;}
+  .alert-list li{border:1px solid var(--amber); border-left-width:4px; border-radius:3px; padding:8px 12px; font-family:var(--font-m); font-size:12px; color:var(--txt); background:#ffb02010;}
+  .alert-list li.clean{border-color:var(--green); background:#3ee08a10; color:var(--txt-dim);}
+
+  footer{margin-top:40px; padding:20px; border-top:1px solid var(--line); font-family:var(--font-m); font-size:11px; color:var(--txt-faint); line-height:1.7;}
+  footer strong{color:var(--txt-dim);}
+  footer code{color:var(--txt-dim);}
+
+  details.disclose{margin-top:10px;}
+  details.disclose summary{cursor:pointer; font-family:var(--font-m); font-size:11.5px; color:var(--cyan);}
+  details.disclose p{font-family:var(--font-m); font-size:11.5px; color:var(--txt-dim); line-height:1.6;}
+
+  .human-gate{
+    margin-top:18px; padding:14px 16px; border:1px solid var(--green); border-radius:4px;
+    background:#3ee08a12; color:var(--txt); font-family:var(--font-b); font-size:14px; line-height:1.5;
+  }
+  .human-gate strong{color:var(--green);}
+
+  @media(max-width:600px){
+    .brand h1{font-size:15px;}
+    .status-cluster{font-size:11px; gap:12px;}
+    .tel-tile .value{font-size:21px;}
+    .wrap{padding:0 12px 40px;}
+  }
+</style>
+</head>
+<body>
+
+<a href="#main" class="skip-link">Skip to main content</a>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="mark" aria-hidden="true">C</div>
+    <div>
+      <h1>CANDOR <span class="mono" style="color:var(--txt-dim); font-weight:400;">// OPS HUD</span></h1>
+      <div class="sub">OPERATIONAL COMMAND CENTER</div>
+    </div>
+  </div>
+  <div class="status-cluster" role="status" aria-live="polite">
+    <span class="item"><span class="dot" id="pipeline-dot"></span> Pipeline: <span id="pipeline-status">Nominal</span></span>
+    <span class="item"><span class="dot"></span> Modules Online: <span id="modules-online-label">10/10</span></span>
+    <span class="item">Snapshot: <span id="snapshot-time" class="mono"></span></span>
+  </div>
+</header>
+
+<main id="main" class="wrap">
+  <div class="snapshot-banner" role="note">
+    <strong>Point-in-time synthetic snapshot</strong> — every number on this page was pulled directly from this
+    project's real local files (<code>candor08-records.jsonl</code>, <code>candor08-decisions.jsonl</code>,
+    <code>observability-log.jsonl</code>, circuit-breaker state, the dead-letter queue, and fresh runs of
+    <code>candor06_pool_bias_audit.py</code> / <code>candor09_alerts_digest.py</code>) at the timestamp shown
+    above, then frozen for this demo. This page is <strong>not</strong> connected to any live system — it will
+    never update on its own, and no data shown here was collected from a real job applicant (all candidates are
+    fictional, per CANDOR Master Instructions §14).
+  </div>
+
+  <div class="human-gate">
+    <strong>Human approval gate — active.</strong> Every module below computes deterministic scores, evidence,
+    or diagnostics. None of them reject, advance, or contact a candidate. Only a human, recorded through
+    CANDOR-10's decision gateway, does that (Master Instructions §13).
+  </div>
+
+  <section aria-labelledby="tel-h" style="margin-top:30px;">
+    <h2 class="section-title" id="tel-h">System Telemetry</h2>
+    <div class="panel"><span class="bl"></span><span class="br"></span>
+      <div class="tel-grid" id="tel-grid"></div>
+    </div>
+  </section>
+
+  <div class="grid-wrap two">
+    <section aria-labelledby="intake-h">
+      <h2 class="section-title" id="intake-h">Intake Sources (3 real adapters)</h2>
+      <div class="panel"><span class="bl"></span><span class="br"></span>
+        <div class="source-row" id="source-rows"></div>
+        <details class="disclose">
+          <summary>Why does file-upload include fallback-ID runs?</summary>
+          <p>CANDOR-01/02's manual-trigger test path defaults to a fixed candidate ID
+          (<code>SYN-CAND-0001</code>) when no real intake payload is supplied — used throughout this project's
+          build-and-verify process. 20 of the 69 file-upload records reflect this. They're real, persisted, and
+          scored, but weren't real synthetic-applicant submissions through a live form. Counted under
+          file-upload (the closest real category) rather than hidden or invented into a 4th bucket.</p>
+        </details>
+      </div>
+    </section>
+
+    <section aria-labelledby="dedup-h">
+      <h2 class="section-title" id="dedup-h">Dedup &amp; Persistence Health</h2>
+      <div class="panel"><span class="bl"></span><span class="br"></span>
+        <div class="tel-grid" id="dedup-grid"></div>
+      </div>
+    </section>
+  </div>
+
+  <section aria-labelledby="pool-h" style="margin-top:26px;">
+    <h2 class="section-title" id="pool-h">Curated Demo Pool — 5 Real, Currently-Scored Candidates</h2>
+    <div class="panel"><span class="bl"></span><span class="br"></span>
+      <p class="mono" style="font-size:11.5px; color:var(--txt-dim); margin-top:0;">
+        Drawn from real persisted CANDOR-08 records scored under the current formula
+        (<span id="formula-version-inline"></span>), covering all 3 intake sources. Open the Candidate Console
+        for full per-candidate evidence, factor breakdowns, and briefings.
+      </p>
+      <div class="pool-scroll">
+        <div class="pool-grid" id="pool-grid"></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="grid-wrap two">
+    <section aria-labelledby="bias-h">
+      <h2 class="section-title" id="bias-h">Bias &amp; Fairness Audit (CANDOR-05/06, pool-level)</h2>
+      <div class="panel"><span class="bl"></span><span class="br"></span>
+        <p class="mono" style="font-size:11.5px; color:var(--amber); margin-top:0;" id="bias-stale-note"></p>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Required skill</th><th>Matched</th><th>Rate</th></tr></thead>
+            <tbody id="bias-rows"></tbody>
+          </table>
+        </div>
+        <p class="mono" style="font-size:11px; color:var(--txt-faint); margin-top:12px;">
+          Low match rates may indicate a miscalibrated JD requirement, not necessarily a weak pool
+          (Master Instructions §9). CANDOR cannot and does not check disparate impact by protected
+          characteristic — that data is never collected, by design (§7).
+        </p>
+      </div>
+    </section>
+
+    <section aria-labelledby="cluster-h">
+      <h2 class="section-title" id="cluster-h">Qualification-Profile Clusters (CANDOR-06)</h2>
+      <div class="panel"><span class="bl"></span><span class="br"></span>
+        <div class="tel-grid" id="cluster-grid"></div>
+        <p class="mono" style="font-size:11px; color:var(--txt-faint); margin-top:12px;">
+          Threshold-bucketed grouping on 2 real scoring axes (skill match, years sufficiency) — "a legible map
+          of the pool, not a black-box leaderboard" (Master Instructions §9). Not k-means or hierarchical
+          clustering; see <code>candor06_pool_clustering.py</code>'s own header for why.
+        </p>
+      </div>
+    </section>
+  </div>
+
+  <section aria-labelledby="decisions-h" style="margin-top:26px;">
+    <h2 class="section-title" id="decisions-h">Human Decision Activity (CANDOR-10)</h2>
+    <div class="panel"><span class="bl"></span><span class="br"></span>
+      <div class="tel-grid" id="decision-grid"></div>
+      <p class="mono" style="font-size:11px; color:var(--txt-faint); margin-top:12px;">
+        Append-only: a changed decision is a new record, never an overwrite. 0 of 19 logged decisions are
+        <span class="mono">ADVANCE</span> — every real decision recorded against this synthetic pool so far has
+        been <span class="mono">HOLD_MORE_INFO_NEEDED</span> or <span class="mono">REJECT</span>, reported as-is,
+        not smoothed into a more flattering distribution.
+      </p>
+    </div>
+  </section>
+
+  <section aria-labelledby="alerts-h" style="margin-top:26px;">
+    <h2 class="section-title" id="alerts-h">Active Alerts (CANDOR-09)</h2>
+    <div class="panel"><span class="bl"></span><span class="br"></span>
+      <ul class="alert-list" id="alert-list"></ul>
+    </div>
+  </section>
+
+  <section aria-labelledby="modules-h" style="margin-top:26px;">
+    <h2 class="section-title" id="modules-h">Module Status (10 / 10)</h2>
+    <div class="panel"><span class="bl"></span><span class="br"></span>
+      <div class="module-grid" id="module-grid"></div>
+    </div>
+  </section>
+
+  <footer>
+    <p><strong>Data provenance:</strong> this snapshot was generated on <span id="footer-time" class="mono"></span>
+    directly from this project's real local files as of that moment — <code>data/candor-08/candor08-records.jsonl</code>
+    (81 records), <code>data/candor-08/candor08-decisions.jsonl</code> (19 decisions),
+    <code>data/candor-08/observability-log.jsonl</code> (491 entries), the 3 circuit-breaker state files, the
+    dead-letter queue, and fresh runs of <code>candor06_pool_bias_audit.py</code>, <code>candor06_pool_statistics.py</code>,
+    <code>candor06_pool_clustering.py</code>, and <code>candor09_alerts_digest.py</code>. It is a frozen copy, not
+    a live feed — this page never calls out to n8n or any other backend, by design (Master Instructions §14).</p>
+    <p>CANDOR is a demonstration project. Nothing on this page constitutes a hiring decision, a certification of
+    legal or bias compliance, or a recommendation about any person — real or synthetic (Master Instructions
+    §8 / §13 / §26).</p>
+  </footer>
+</main>
+
+<script id="candor-data" type="application/json">{"snapshot_generated_at": "2026-09-19T06:26:25Z", "scoring_formula_version": "CANDOR-04 scoring v0.9", "persisted_records": 81, "decisions_logged": 19, "decisions_breakdown": {"REJECT": 2, "HOLD_MORE_INFO_NEEDED": 17, "ADVANCE": 0}, "modules_online": 10, "modules_total": 10, "circuit_breakers_open": 0, "circuit_breakers_total": 3, "dlq_pending": 0, "dlq_historical": 1, "active_alerts": 6, "observability_entries": 491, "observability_success": 490, "observability_error": 1, "mean_latency_ms": 4040, "max_latency_ms": 10263, "dedup_exact": 39, "dedup_near": 11, "intake_sources": {"file-upload": 69, "application-form": 4, "ats-export": 8}, "bias_audit": {"n": 6, "pool_formula_version": "CANDOR-04 scoring v0.6", "pool_stale_note": "Canonical 6-candidate demo pool has not been rescored under v0.9 - identical resubmission is correctly blocked by CANDOR-08's exact-match dedup gate (built 2026-09-18). Numbers below are still the real, current output of candor06_pool_bias_audit.py against that pool.", "requirement_failure_rates": [{"skill": "hubspot", "matched": 1, "total": 6, "pct": 17}, {"skill": "salesforce", "matched": 2, "total": 6, "pct": 33}]}, "pool_statistics": {"n": 6, "match_score": {"mean": 47.83, "median": 50.0, "min": 0, "max": 100}, "evidence_confidence": {"mean": 67.83, "median": 64.5, "min": 40, "max": 100}, "outliers": "none flagged (Tukey IQR fences, n=6)"}, "clusters": [{"label": "NOT_MATCHED + UNKNOWN", "n": 3}, {"label": "MATCHED + PARTIAL", "n": 1}, {"label": "MATCHED + SUFFICIENT", "n": 1}, {"label": "NOT_MATCHED + INSUFFICIENT_OR_IRRELEVANT", "n": 1}]}</script>
+<script id="candor-modules" type="application/json">[{"id": "CANDOR-01", "name": "Intake & Parsing Core", "status": "ONLINE", "detail": "Resume/JD extraction \u00b7 circuit breaker, retry, observability, DLQ"}, {"id": "CANDOR-02", "name": "Source Adapters (3)", "status": "ONLINE", "detail": "file-upload \u00b7 application-form \u00b7 ATS-export batch"}, {"id": "CANDOR-03", "name": "Claim Extraction & Evidence Verification", "status": "ONLINE", "detail": "Same workflow as CANDOR-01, by design"}, {"id": "CANDOR-04", "name": "Requirement Matching & Deterministic Scoring", "status": "ONLINE", "detail": "Match Score v0.9 \u00b7 7/7 permitted factors scored"}, {"id": "CANDOR-05", "name": "Bias & Fairness Audit Layer", "status": "ONLINE", "detail": "Per-run audit record \u00b7 same workflow as CANDOR-04"}, {"id": "CANDOR-06", "name": "Comparative Ranking & Clustering", "status": "ONLINE", "detail": "Pool statistics, bias audit, qualification clustering (Python)"}, {"id": "CANDOR-07", "name": "Recruiter Briefing Generator", "status": "ONLINE", "detail": "Claude Sonnet 5 \u00b7 5 hard constraints \u00b7 independent QA review pass"}, {"id": "CANDOR-08", "name": "Database / Historical Intelligence", "status": "ONLINE", "detail": "Append-only JSONL \u00b7 exact + near-duplicate dedup gate"}, {"id": "CANDOR-09", "name": "Alerts / Reporting", "status": "ONLINE", "detail": "Bias-rate + unreviewed-candidate digest (Python)"}, {"id": "CANDOR-10", "name": "Human Approval & Action Gateway", "status": "ONLINE", "detail": "2-page form \u00b7 records decisions, never executes one"}]</script>
+<script>
+(function(){
+  var DATA = JSON.parse(document.getElementById('candor-data').textContent);
+  var MODULES = JSON.parse(document.getElementById('candor-modules').textContent);
+
+  function fmtTime(iso){
+    try{
+      var d = new Date(iso);
+      return d.toISOString().replace('T',' ').replace(/\.\d+Z$/,' UTC');
+    }catch(e){ return iso; }
+  }
+  var t = fmtTime(DATA.snapshot_generated_at);
+  document.getElementById('snapshot-time').textContent = t;
+  document.getElementById('footer-time').textContent = t;
+  document.getElementById('modules-online-label').textContent = DATA.modules_online + '/' + DATA.modules_total;
+  document.getElementById('formula-version-inline').textContent = DATA.scoring_formula_version;
+
+  var pipelineOk = DATA.circuit_breakers_open === 0 && DATA.dlq_pending === 0;
+  document.getElementById('pipeline-status').textContent = pipelineOk ? 'Nominal' : 'Degraded';
+  if(!pipelineOk){ document.getElementById('pipeline-dot').classList.add('amber'); }
+
+  function tile(label, value, cls, sub){
+    var d = document.createElement('div'); d.className='tel-tile';
+    var v = document.createElement('div'); v.className='value '+(cls||''); v.textContent = value;
+    var l = document.createElement('div'); l.className='label'; l.textContent = label;
+    d.appendChild(l); d.appendChild(v);
+    if(sub){ var s = document.createElement('div'); s.className='sub'; s.textContent = sub; d.appendChild(s); }
+    return d;
+  }
+
+  var telGrid = document.getElementById('tel-grid');
+  telGrid.appendChild(tile('Persisted Records', String(DATA.persisted_records), 'cyan', 'candor08-records.jsonl'));
+  telGrid.appendChild(tile('Decisions Logged', String(DATA.decisions_logged), 'cyan', 'candor08-decisions.jsonl, append-only'));
+  telGrid.appendChild(tile('Circuit Breakers', DATA.circuit_breakers_open+' / '+DATA.circuit_breakers_total+' open', 'green', 'base · JD · briefing, all closed'));
+  telGrid.appendChild(tile('Dead-Letter Queue', DATA.dlq_pending+' pending', 'green', DATA.dlq_historical+' historical entry, requeued clean'));
+  telGrid.appendChild(tile('Active Alerts', String(DATA.active_alerts), 'amber', 'fresh candor09_alerts_digest.py run'));
+  telGrid.appendChild(tile('Scoring Formula', 'v0.9', 'green', '7 / 7 permitted factors (Master Instructions §7)'));
+  telGrid.appendChild(tile('Observability Log', DATA.observability_entries+' entries', 'cyan', DATA.observability_success+' success · '+DATA.observability_error+' error (matches DLQ)'));
+  telGrid.appendChild(tile('Mean Call Latency', (DATA.mean_latency_ms/1000).toFixed(1)+' s', 'cyan', 'max '+(DATA.max_latency_ms/1000).toFixed(1)+'s · Anthropic extraction/scoring calls'));
+
+  var dedupGrid = document.getElementById('dedup-grid');
+  dedupGrid.appendChild(tile('Exact Duplicates Caught', DATA.dedup_exact+' / '+DATA.persisted_records, 'amber', '(job_id, resume_content_hash) gate'));
+  dedupGrid.appendChild(tile('Near-Duplicates Flagged', DATA.dedup_near+' / '+DATA.persisted_records, 'amber', 'shingle-fingerprint similarity check'));
+  dedupGrid.appendChild(tile('Write Path', 'Append-only', 'green', 'never overwrites, verified under 50-way concurrency'));
+  dedupGrid.appendChild(tile('Genuinely New Records', '~'+(DATA.persisted_records-DATA.dedup_exact)+' / '+DATA.persisted_records, 'cyan', 'after exact dedup accounted for'));
+
+  var sources = DATA.intake_sources;
+  var total = sources['file-upload'] + sources['application-form'] + sources['ats-export'];
+  var srcRows = document.getElementById('source-rows');
+  [['file-upload', sources['file-upload']], ['application-form', sources['application-form']], ['ats-export', sources['ats-export']]].forEach(function(pair){
+    var pct = Math.round((pair[1]/total)*100);
+    var row = document.createElement('div'); row.className='source-bar-wrap';
+    var name = document.createElement('span'); name.className='name'; name.textContent = pair[0];
+    var track = document.createElement('span'); track.className='source-bar-track';
+    var fill = document.createElement('span'); fill.className='source-bar-fill'; fill.style.width = pct+'%';
+    track.appendChild(fill);
+    var count = document.createElement('span'); count.className='count'; count.textContent = pair[1]+' ('+pct+'%)';
+    row.appendChild(name); row.appendChild(track); row.appendChild(count);
+    srcRows.appendChild(row);
+  });
+
+  document.getElementById('bias-stale-note').textContent = 'Pool data is real but at CANDOR-04 scoring v0.6 (dedup gate correctly blocks re-scoring identical resumes under v0.9) — disclosed, not silently mixed with the v0.9 figures above.';
+  var biasRows = document.getElementById('bias-rows');
+  DATA.bias_audit.requirement_failure_rates.forEach(function(r){
+    var tr = document.createElement('tr');
+    var td1=document.createElement('td'); td1.textContent=r.skill;
+    var td2=document.createElement('td'); td2.textContent=r.matched+' / '+r.total;
+    var td3=document.createElement('td'); var pill=document.createElement('span'); pill.className='pill amber'; pill.textContent=r.pct+'%'; td3.appendChild(pill);
+    tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3);
+    biasRows.appendChild(tr);
+  });
+
+  var clusterGrid = document.getElementById('cluster-grid');
+  DATA.clusters.forEach(function(c){
+    clusterGrid.appendChild(tile(c.label, 'n='+c.n, 'cyan', ''));
+  });
+
+  var decGrid = document.getElementById('decision-grid');
+  decGrid.appendChild(tile('HOLD_MORE_INFO_NEEDED', String(DATA.decisions_breakdown.HOLD_MORE_INFO_NEEDED), 'amber', ''));
+  decGrid.appendChild(tile('REJECT', String(DATA.decisions_breakdown.REJECT), 'red', ''));
+  decGrid.appendChild(tile('ADVANCE', String(DATA.decisions_breakdown.ADVANCE), 'green', 'never automated — always a human action'));
+
+  var alertList = document.getElementById('alert-list');
+  var alerts = [
+    "'hubspot' required-skill matched by only 1/6 (17%) of the pool",
+    "'salesforce' required-skill matched by only 2/6 (33%) of the pool",
+    'INTAKE-SYNTHETIC-RESUME-03-...52436 — INSUFFICIENT INFORMATION, no recorded decision',
+    'INTAKE-SYNTHETIC-RESUME-03-...58564 — INSUFFICIENT INFORMATION, no recorded decision',
+    'INTAKE-SYNTHETIC-RESUME-03-...61634 — INSUFFICIENT INFORMATION, no recorded decision',
+    'INTAKE-SYNTHETIC-RESUME-02-...24359 — INSUFFICIENT INFORMATION, no recorded decision'
+  ];
+  alerts.forEach(function(a){ var li=document.createElement('li'); li.textContent=a; alertList.appendChild(li); });
+  var clean = document.createElement('li'); clean.className='clean';
+  clean.textContent = 'Circuit breakers: all closed. Dead-letter queue: no unrequeued entries.';
+  alertList.appendChild(clean);
+
+  var modGrid = document.getElementById('module-grid');
+  MODULES.forEach(function(m){
+    var card = document.createElement('div'); card.className='module-card';
+    var row1 = document.createElement('div'); row1.className='row1';
+    var id = document.createElement('span'); id.className='id'; id.textContent = m.id;
+    var pill = document.createElement('span'); pill.className='pill green'; pill.textContent = m.status;
+    row1.appendChild(id); row1.appendChild(pill);
+    var name = document.createElement('div'); name.className='name'; name.textContent = m.name;
+    var detail = document.createElement('div'); detail.className='detail'; detail.textContent = m.detail;
+    card.appendChild(row1); card.appendChild(name); card.appendChild(detail);
+    modGrid.appendChild(card);
+  });
+
+  var pool = [
+    {id:'SYNTH-LOADTEST-393', source:'file-upload', ms:83, ec:89, interp:'STRONG CANDIDATE FOR RECRUITER REVIEW'},
+    {id:'MORGAN-TAYLOR-REED', source:'application-form', ms:20, ec:100, interp:'RELIABLY NOT A FIT FOR THIS ROLE'},
+    {id:'DREW-ALEX-QUINN', source:'application-form', ms:94, ec:75, interp:'STRONG CANDIDATE FOR RECRUITER REVIEW'},
+    {id:'CASEY-LOGAN-PARKER', source:'ats-export', ms:100, ec:100, interp:'STRONG CANDIDATE FOR RECRUITER REVIEW'},
+    {id:'REGRESSION-CHECK-CANDIDA', source:'application-form', ms:100, ec:50, interp:'PROMISING - VERIFY BEFORE PRIORITIZING'}
+  ];
+  var interpColor = {
+    'STRONG CANDIDATE FOR RECRUITER REVIEW':'green',
+    'RELIABLY NOT A FIT FOR THIS ROLE':'red',
+    'PROMISING - VERIFY BEFORE PRIORITIZING':'amber',
+    'INSUFFICIENT INFORMATION':'cyan'
+  };
+  var poolGrid = document.getElementById('pool-grid');
+  pool.forEach(function(c){
+    var card = document.createElement('div'); card.className='pool-card';
+    var col = interpColor[c.interp] || 'cyan';
+    var pid = document.createElement('div'); pid.className='pid';
+    pid.textContent = c.id + ' · ' + c.source;
+    var interp = document.createElement('div'); interp.className='interp'; interp.style.color='var(--'+col+')'; interp.textContent = c.interp;
+    var gr = document.createElement('div'); gr.className='gauge-row';
+    var g1 = document.createElement('span'); g1.className='gauge-label'; g1.textContent='Match '+c.ms;
+    var g2 = document.createElement('span'); g2.className='gauge-label'; g2.textContent='Evidence '+c.ec;
+    gr.appendChild(g1); gr.appendChild(g2);
+    card.appendChild(pid); card.appendChild(interp); card.appendChild(gr);
+    poolGrid.appendChild(card);
+  });
+})();
+</script>
+</body>
+</html>

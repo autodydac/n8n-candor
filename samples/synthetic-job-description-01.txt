@@ -1,0 +1,38 @@
+=== SYNTHETIC TEST FIXTURE — NOT A REAL JOB POSTING ===
+This document is entirely fictional, created for CANDOR portfolio/demo and
+development-testing purposes only, per CANDOR Master Instructions §14.
+Any resemblance to a real company or role is coincidental.
+====================================================
+
+Title: Regional Sales Manager
+Company: Meridian Software Group (fictional company)
+Location: Remote (Synthetica Region)
+
+ABOUT THE ROLE
+We are looking for a Regional Sales Manager to lead a territory-based B2B
+software sales function, own a $2M+ annual quota, and mentor a small team
+of account executives.
+
+REQUIRED QUALIFICATIONS
+- 5+ years of B2B software or SaaS sales experience
+- Demonstrated track record of exceeding sales quota, with quantifiable
+  revenue results
+- Experience managing or mentoring junior sales staff
+- Proficiency with a major CRM platform (Salesforce or HubSpot)
+- Strong track record of contract negotiation for deals of $250,000+
+  annual value
+
+PREFERRED QUALIFICATIONS
+- Experience reducing sales-cycle length through process improvement
+- Bachelor's degree in Business, Marketing, or a related field
+- Relevant sales certification (e.g., CSP or equivalent)
+
+WHAT SUCCESS LOOKS LIKE IN THE FIRST YEAR
+- Meet or exceed assigned regional quota
+- Onboard and support at least 2 new account executives
+- Document and refine at least one repeatable sales process
+
+NOTE: This job description is stored as a fixture for future CANDOR modules
+(CANDOR-03 claim/requirement mapping, CANDOR-04 deterministic scoring). It
+is not consumed by the CANDOR-01 workflow itself, which only extracts and
+verifies claims from the resume in isolation.

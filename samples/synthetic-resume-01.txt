@@ -1,0 +1,45 @@
+=== SYNTHETIC TEST FIXTURE — NOT A REAL PERSON ===
+This document is entirely fictional, created for CANDOR portfolio/demo and
+development-testing purposes only, per CANDOR Master Instructions §14.
+Any resemblance to a real person, employer, school, or certification body
+is coincidental. Do not treat any fact below as real.
+====================================================
+
+JORDAN ELLIS RIVERA
+jordan.rivera.testcandidate@example-fictional.com | (555) 019-2847
+Springfield, State of Synthetica
+
+PROFESSIONAL SUMMARY
+Results-driven sales professional with 7 years of experience in B2B software
+sales, team leadership, and account management.
+
+EXPERIENCE
+
+Senior Account Executive — Brightline Analytics Corp (fictional company)
+March 2021 – Present (4 years 6 months)
+- Increased regional net-new revenue by 34% over an 18-month period by
+  restructuring the outbound prospecting workflow and introducing a tiered
+  lead-scoring model.
+- Closed a $420,000 annual contract with a mid-market logistics client, the
+  largest single deal in the Southeast territory that fiscal year.
+- Managed a book of 45 active accounts across the Southeast region.
+- Recognized as a top performer and trusted advisor by leadership.
+
+Account Executive — Fictional Cloud Metrics Inc.
+January 2018 – February 2021 (3 years 2 months)
+- Generated $1.1M in new annual recurring revenue across 60 closed deals.
+- Reduced average sales-cycle length from 92 days to 71 days by introducing
+  a standardized discovery-call template.
+- Trained and mentored 3 incoming junior account executives.
+
+EDUCATION
+B.S. in Business Administration, Springfield State University (fictional
+institution) — Graduated May 2017
+
+CERTIFICATIONS
+- Certified Sales Professional (CSP), Fictional Sales Certification Board,
+  issued 2019
+
+SKILLS
+Salesforce CRM, HubSpot, Consultative Selling, Territory Planning, Contract
+Negotiation, Team Leadership, Lead Scoring, Forecasting
