@@ -322,7 +322,7 @@
       ],
       "parameters": {
         "operation": "write",
-        "fileName": "/home/node/.candor-files/candor08-records.jsonl",
+        "fileName": "/data/candor-shared/candor08-records.jsonl",
         "dataPropertyName": "data",
         "options": {
           "append": true
@@ -340,7 +340,7 @@
       ],
       "parameters": {
         "operation": "read",
-        "fileSelector": "/home/node/.candor-files/candor08-records.jsonl",
+        "fileSelector": "/data/candor-shared/candor08-records.jsonl",
         "options": {}
       },
       "onError": "continueRegularOutput"
@@ -416,7 +416,7 @@
       ],
       "parameters": {
         "operation": "read",
-        "fileSelector": "/home/node/.candor-files/circuit-breaker-state-jd.json",
+        "fileSelector": "/data/candor-shared/circuit-breaker-state-jd.json",
         "options": {}
       },
       "onError": "continueRegularOutput"
@@ -498,7 +498,7 @@
       ],
       "parameters": {
         "operation": "write",
-        "fileName": "/home/node/.candor-files/circuit-breaker-state-jd.json",
+        "fileName": "/data/candor-shared/circuit-breaker-state-jd.json",
         "dataPropertyName": "data",
         "options": {}
       }
@@ -548,7 +548,7 @@
       ],
       "parameters": {
         "operation": "write",
-        "fileName": "/home/node/.candor-files/circuit-breaker-state-jd.json",
+        "fileName": "/data/candor-shared/circuit-breaker-state-jd.json",
         "dataPropertyName": "data",
         "options": {}
       }
@@ -644,7 +644,7 @@
       ],
       "parameters": {
         "operation": "write",
-        "fileName": "/home/node/.candor-files/observability-log.jsonl",
+        "fileName": "/data/candor-shared/observability-log.jsonl",
         "dataPropertyName": "data",
         "options": {
           "append": true
@@ -681,7 +681,7 @@
       ],
       "parameters": {
         "operation": "write",
-        "fileName": "/home/node/.candor-files/observability-log.jsonl",
+        "fileName": "/data/candor-shared/observability-log.jsonl",
         "dataPropertyName": "data",
         "options": {
           "append": true
@@ -760,7 +760,7 @@
       ],
       "parameters": {
         "operation": "read",
-        "fileSelector": "/home/node/.candor-files/candor04-jd-extraction-cache.jsonl",
+        "fileSelector": "/data/candor-shared/candor04-jd-extraction-cache.jsonl",
         "options": {}
       },
       "onError": "continueRegularOutput"
@@ -925,7 +925,7 @@
       ],
       "parameters": {
         "operation": "write",
-        "fileName": "/home/node/.candor-files/candor04-jd-extraction-cache.jsonl",
+        "fileName": "/data/candor-shared/candor04-jd-extraction-cache.jsonl",
         "dataPropertyName": "data",
         "options": {
           "append": true
@@ -1864,7 +1864,7 @@
         ],
         "parameters": {
           "operation": "write",
-          "fileName": "/home/node/.candor-files/candor08-records.jsonl",
+          "fileName": "/data/candor-shared/candor08-records.jsonl",
           "dataPropertyName": "data",
           "options": {
             "append": true
@@ -1882,7 +1882,7 @@
         ],
         "parameters": {
           "operation": "read",
-          "fileSelector": "/home/node/.candor-files/candor08-records.jsonl",
+          "fileSelector": "/data/candor-shared/candor08-records.jsonl",
           "options": {}
         },
         "onError": "continueRegularOutput"
@@ -1958,7 +1958,7 @@
         ],
         "parameters": {
           "operation": "read",
-          "fileSelector": "/home/node/.candor-files/circuit-breaker-state-jd.json",
+          "fileSelector": "/data/candor-shared/circuit-breaker-state-jd.json",
           "options": {}
         },
         "onError": "continueRegularOutput"
@@ -2040,7 +2040,7 @@
         ],
         "parameters": {
           "operation": "write",
-          "fileName": "/home/node/.candor-files/circuit-breaker-state-jd.json",
+          "fileName": "/data/candor-shared/circuit-breaker-state-jd.json",
           "dataPropertyName": "data",
           "options": {}
         }
@@ -2090,7 +2090,7 @@
         ],
         "parameters": {
           "operation": "write",
-          "fileName": "/home/node/.candor-files/circuit-breaker-state-jd.json",
+          "fileName": "/data/candor-shared/circuit-breaker-state-jd.json",
           "dataPropertyName": "data",
           "options": {}
         }
@@ -2186,7 +2186,7 @@
         ],
         "parameters": {
           "operation": "write",
-          "fileName": "/home/node/.candor-files/observability-log.jsonl",
+          "fileName": "/data/candor-shared/observability-log.jsonl",
           "dataPropertyName": "data",
           "options": {
             "append": true
@@ -2223,7 +2223,7 @@
         ],
         "parameters": {
           "operation": "write",
-          "fileName": "/home/node/.candor-files/observability-log.jsonl",
+          "fileName": "/data/candor-shared/observability-log.jsonl",
           "dataPropertyName": "data",
           "options": {
             "append": true
@@ -2302,7 +2302,7 @@
         ],
         "parameters": {
           "operation": "read",
-          "fileSelector": "/home/node/.candor-files/candor04-jd-extraction-cache.jsonl",
+          "fileSelector": "/data/candor-shared/candor04-jd-extraction-cache.jsonl",
           "options": {}
         },
         "onError": "continueRegularOutput"
@@ -2467,7 +2467,7 @@
         ],
         "parameters": {
           "operation": "write",
-          "fileName": "/home/node/.candor-files/candor04-jd-extraction-cache.jsonl",
+          "fileName": "/data/candor-shared/candor04-jd-extraction-cache.jsonl",
           "dataPropertyName": "data",
           "options": {
             "append": true
@@ -3091,7 +3091,7 @@
     ]
   },
   "_export_meta": {
-    "note": "Sanitized, representative export for public release. Credential references, the builder's name, and internal-only metadata have been stripped. Node structure, connections, and Code-node JavaScript are real and unmodified from the live workflow. The full, unsanitized version is version-controlled in this project's private repository and is never published.",
-    "sanitized_at": "2026-09-19T23:50:00Z"
+    "note": "Sanitized, representative export for public release. Credential references, the builder's name, and the internal container file-mount path have been stripped/genericized. Node structure, connections, and Code-node JavaScript are real and unmodified from the live workflow. The full, unsanitized version is version-controlled in this project's private repository and is never published.",
+    "sanitized_at": "2026-09-19T23:58:00Z"
   }
 }

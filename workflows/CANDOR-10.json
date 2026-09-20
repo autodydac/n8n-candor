@@ -191,7 +191,7 @@
       ],
       "parameters": {
         "operation": "write",
-        "fileName": "/home/node/.candor-files/candor08-decisions.jsonl",
+        "fileName": "/data/candor-shared/candor08-decisions.jsonl",
         "dataPropertyName": "data",
         "options": {
           "append": true
@@ -498,7 +498,7 @@
         ],
         "parameters": {
           "operation": "write",
-          "fileName": "/home/node/.candor-files/candor08-decisions.jsonl",
+          "fileName": "/data/candor-shared/candor08-decisions.jsonl",
           "dataPropertyName": "data",
           "options": {
             "append": true
@@ -621,7 +621,7 @@
     ]
   },
   "_export_meta": {
-    "note": "Sanitized, representative export for public release. Credential references, the builder's name, and internal-only metadata have been stripped. Node structure, connections, and Code-node JavaScript are real and unmodified from the live workflow. The full, unsanitized version is version-controlled in this project's private repository and is never published.",
-    "sanitized_at": "2026-09-19T23:50:00Z"
+    "note": "Sanitized, representative export for public release. Credential references, the builder's name, and the internal container file-mount path have been stripped/genericized. Node structure, connections, and Code-node JavaScript are real and unmodified from the live workflow. The full, unsanitized version is version-controlled in this project's private repository and is never published.",
+    "sanitized_at": "2026-09-19T23:58:00Z"
   }
 }
