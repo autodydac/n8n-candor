@@ -1,0 +1,2011 @@
+{
+  "name": "CANDOR-02 - Source Adapter (File Upload)",
+  "active": true,
+  "nodes": [
+    {
+      "id": "form-trigger",
+      "name": "FormTriggerResumeUpload",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.6,
+      "position": [
+        -100,
+        300
+      ],
+      "parameters": {
+        "formTitle": "CANDOR - Resume Upload (Test)",
+        "formDescription": "Synthetic test intake form for CANDOR-02. Upload a .txt or .pdf resume.",
+        "path": "candor02-resume-upload",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Resume File",
+              "fieldType": "file",
+              "fieldName": "resume_file",
+              "requiredField": true,
+              "multipleFiles": false,
+              "acceptFileTypes": ".txt,.pdf"
+            },
+            {
+              "fieldLabel": "Candidate Reference",
+              "fieldType": "text",
+              "fieldName": "candidate_reference",
+              "requiredField": false
+            }
+          ]
+        },
+        "options": {},
+        "authentication": "basicAuth"
+      },
+      "webhookId": "2f2d4e67-5fea-4942-8fd4-ea51f78cb2af",
+      "credentials": {
+        "httpBasicAuth": {
+          "note": "credential reference redacted for public release - see private repo"
+        }
+      }
+    },
+    {
+      "id": "check-file-basics",
+      "name": "CheckFileBasics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        140,
+        300
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "mode": "runOnceForAllItems",
+        "jsCode": "const item = $input.first();\nconst binary = item.binary ? item.binary['resume_file'] : undefined;\n\n// candidate_reference is carried through best-effort only and never\n// depended on - candidate_id is generated deterministically below\n// instead, since a candidate shouldn't be trusted to self-report their\n// own system identifier anyway. (Root-cause note: an earlier round of\n// manual curl testing saw this field arrive as null and initially\n// mis-diagnosed it as an n8n platform limitation. The actual cause was\n// the test harness itself - n8n's rendered form submits multipart field\n// names positionally (field-0, field-1, ...) rather than the human\n// -readable fieldName configured below, and curl was sending the\n// configured name directly. A real submission through n8n's own\n// rendered form works correctly regardless of field order, since the\n// browser and this workflow's backend both derive field-N from the same\n// live form configuration. See CANDOR-02-Build-Log.md for the full\n// investigation.)\nconst candidateReference = (item.json && item.json.candidate_reference) || null;\n\nfunction rejected(reason) {\n  return [{\n    json: {\n      candidate_id: null,\n      resume_filename: binary ? binary.fileName : null,\n      candidate_reference_submitted: candidateReference,\n      intake_status: 'REJECTED',\n      rejection_reason: reason\n    }\n  }];\n}\n\nif (!binary) {\n  return rejected('no file was submitted in the resume_file field');\n}\n\nconst fileName = binary.fileName || 'unknown';\nconst extension = (binary.fileExtension || '').toLowerCase();\nconst allowedExtensions = ['txt', 'pdf'];\n\nif (!allowedExtensions.includes(extension)) {\n  return rejected(`unsupported file type \".${extension || 'unknown'}\" - only .txt and .pdf resumes are accepted`);\n}\n\nconst byteCount = typeof binary.bytes === 'number' ? binary.bytes : null;\nif (byteCount === null) {\n  return rejected('could not determine the uploaded file size');\n}\nif (byteCount === 0) {\n  return rejected('the uploaded file is empty (0 bytes)');\n}\n\n// Deterministic candidate_id derived from the filename plus the exact\n// millisecond the submission was received - does not depend on a field\n// the candidate might leave blank, or that this platform version\n// currently fails to capture alongside a file upload (see note above).\nconst safeStem = fileName.replace(/\\.[^.]+$/, '').replace(/[^a-zA-Z0-9]+/g, '-').toUpperCase().slice(0, 24);\nconst candidateId = `INTAKE-${safeStem}-${Date.now()}`;\n\nreturn [{\n  json: {\n    candidate_id: candidateId,\n    resume_filename: fileName,\n    file_extension: extension,\n    file_size_bytes: byteCount,\n    candidate_reference_submitted: candidateReference,\n    intake_status: 'VALID'\n  },\n  binary: item.binary\n}];\n"
+      }
+    },
+    {
+      "id": "route-by-validity",
+      "name": "RouteByIntakeValidity",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        380,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "validity1",
+              "leftValue": "={{ $json.intake_status }}",
+              "rightValue": "VALID",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "rejected-intake",
+      "name": "RejectedIntake",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        620,
+        460
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "route-by-filetype",
+      "name": "RouteByFileType",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        620,
+        180
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "filetype1",
+              "leftValue": "={{ $json.file_extension }}",
+              "rightValue": "pdf",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "extract-pdf",
+      "name": "ExtractFromPDF",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        860,
+        80
+      ],
+      "parameters": {
+        "operation": "pdf",
+        "binaryPropertyName": "resume_file",
+        "options": {}
+      }
+    },
+    {
+      "id": "extract-text",
+      "name": "ExtractFromTextFile",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        860,
+        280
+      ],
+      "parameters": {
+        "operation": "text",
+        "binaryPropertyName": "resume_file",
+        "destinationKey": "text",
+        "options": {}
+      }
+    },
+    {
+      "id": "normalize-text",
+      "name": "NormalizeText",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        180
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "mode": "runOnceForAllItems",
+        "jsCode": "const extracted = $input.first().json;\nconst intake = $('CheckFileBasics').first().json;\nconst rawText = typeof extracted.text === 'string' ? extracted.text : '';\n\n// --- Step 1: repair 'UTF-8 bytes shown as Windows-1252' mojibake ---\n// This is the exact corruption pattern that broke CANDOR-01's\n// synthetic-resume-03.txt test (see CANDOR-01-Build-Log.md Results, Run 3).\n//\n// Approach: UTF-8 multi-byte sequences that get mis-decoded one byte at a\n// time as Windows-1252 always start with a small, fixed set of lead\n// characters - \"Ã\" (from a 2-byte C3 xx sequence: Latin-1 Supplement\n// letters like é/è/ó), \"Â\" (from a 2-byte C2 xx sequence: C1\n// controls/Latin-1 punctuation, most commonly a non-breaking space), and\n// \"â€\" or \"â–\" (from a 3-byte E2 80/96 xx sequence: General\n// Punctuation - curly quotes, dashes, bullet, ellipsis - or Block\n// Elements). Each is repaired by reversing exactly that one corrupted\n// character back to its original cp1252 BYTE value and reconstructing the\n// true Unicode code point via the same UTF-8 bit math, using ONLY the one\n// character immediately following the diagnostic prefix. This only fires\n// on these specific, essentially never-coincidental 1-2 character prefix\n// sequences, so it cannot corrupt a standalone genuine em dash, curly\n// quote, or accented letter elsewhere in the text - unlike an earlier\n// whole-string approach (reverting the entire text through one byte\n// buffer) which was found, via real testing, to corrupt genuinely correct\n// em dashes that happened to share a byte-derived code point with actual\n// mojibake elsewhere in the same document.\n//\n// Known, accepted limitation: a small number of cp1252 byte values are\n// themselves undefined (e.g. the byte behind a closing curly quote) and\n// render as nothing when mis-decoded, so that specific character is\n// consumed by nothing 'visible' - the diagnostic prefix is then left\n// exactly as-is rather than guessing (a genuine mojibake continuation\n// byte is never literal whitespace in practice, so whitespace right\n// after the prefix is treated as \"not a continuation - leave it alone\"\n// rather than eaten and replaced with a wrong character). This trades a\n// small amount of missed repair for zero risk of silently merging two\n// words together or inventing a wrong symbol.\nfunction buildReverseCp1252Map() {\n  const highMap = {\n    0x80: 0x20AC, 0x82: 0x201A, 0x83: 0x0192, 0x84: 0x201E, 0x85: 0x2026,\n    0x86: 0x2020, 0x87: 0x2021, 0x88: 0x02C6, 0x89: 0x2030, 0x8A: 0x0160,\n    0x8B: 0x2039, 0x8C: 0x0152, 0x8E: 0x017D, 0x91: 0x2018, 0x92: 0x2019,\n    0x93: 0x201C, 0x94: 0x201D, 0x95: 0x2022, 0x96: 0x2013, 0x97: 0x2014,\n    0x98: 0x02DC, 0x99: 0x2122, 0x9A: 0x0161, 0x9B: 0x203A, 0x9C: 0x0153,\n    0x9E: 0x017E, 0x9F: 0x0178\n  };\n  const reverseMap = {};\n  for (let b = 0; b <= 0xFF; b++) {\n    const cp = highMap[b] !== undefined ? highMap[b] : b;\n    reverseMap[cp] = b;\n  }\n  return reverseMap;\n}\n\nfunction repairMojibake(text) {\n  if (!text) return { text, repaired: false, repairedCount: 0 };\n  const reverseMap = buildReverseCp1252Map();\n  let repairedCount = 0;\n\n  function fix(base, nextChar) {\n    if (/\\s/.test(nextChar)) return null;\n    const b = reverseMap[nextChar.codePointAt(0)];\n    if (b === undefined) return null;\n    return String.fromCodePoint(base | (b & 0x3F));\n  }\n\n  let result = text;\n  const prefixRules = [['â€', 0x2000], ['â–', 0x2580], ['Ã', 0x00C0], ['Â', 0x0080]];\n  for (const [prefix, base] of prefixRules) {\n    const re = new RegExp(prefix + '(.)', 'gu');\n    result = result.replace(re, (m, c) => {\n      const fixed = fix(base, c);\n      if (fixed !== null) { repairedCount++; return fixed; }\n      return m;\n    });\n  }\n\n  return { text: result, repaired: repairedCount > 0, repairedCount };\n}\n\n// --- Step 2: strip stray replacement characters (genuinely lost data,\n// not repairable - e.g. from invalid byte sequences that can't round-trip\n// back to anything meaningful) ---\nfunction stripReplacementChars(text) {\n  const count = (text.match(/�/g) || []).length;\n  return { text: text.replace(/�/g, ''), count };\n}\n\n// --- Step 3: whitespace normalization ---\nfunction normalizeWhitespace(text) {\n  return text\n    .replace(/ /g, ' ')\n    .replace(/\\r\\n?/g, '\\n')\n    .split('\\n')\n    .map(line => line.replace(/[ \\t]+/g, ' ').trimEnd())\n    .join('\\n')\n    .replace(/\\n{3,}/g, '\\n\\n')\n    .trim();\n}\n\nconst step1 = repairMojibake(rawText);\nconst step2 = stripReplacementChars(step1.text);\nconst finalText = normalizeWhitespace(step2.text);\n\nreturn [{\n  json: {\n    candidate_id: intake.candidate_id,\n    resume_filename: intake.resume_filename,\n    file_extension: intake.file_extension,\n    file_size_bytes: intake.file_size_bytes,\n    resume_text: finalText,\n    intake_status: 'OK',\n    normalization_notes: {\n      mojibake_repair_applied: step1.repaired,\n      mojibake_repairs_count: step1.repairedCount,\n      replacement_chars_stripped: step2.count\n    }\n  }\n}];\n"
+      }
+    },
+    {
+      "id": "call-candor01",
+      "name": "CallCANDOR01",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1340,
+        180
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "f2WXrhjZrJPINZQV"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {}
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "compute-resume-content-hash",
+      "name": "ComputeResumeContentHash",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        340
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "mode": "runOnceForAllItems",
+        "jsCode": "// === CANDOR-08 deduplication support (System Review item 27) ===\n// Computes a canonical content hash of the already-normalized resume\n// text, so CANDOR-08 can later detect \"the same resume submitted again\"\n// independent of filename, candidate_id (always freshly minted), or\n// trivial re-encoding/whitespace differences.\n//\n// Canonicalization is applied ON TOP of NormalizeText's own mojibake\n// repair + whitespace normalization - a second, narrower pass\n// specifically for hash stability (Unicode normalization form, line\n// -ending normalization, blank-line collapsing, outer trim).\n//\n// IMPORTANT (spread, not reconstruct): this node spreads the incoming\n// item (`...item`) rather than listing fields by hand - NormalizeText's\n// own hand-written return object is exactly what silently dropped\n// candidate_reference_submitted previously. Spreading here means every\n// existing field survives automatically; only the two new hash fields\n// are added explicitly.\n//\n// Pure-JS SHA-256, not crypto/crypto.subtle: this n8n instance runs Code\n// nodes through @n8n/task-runner's JsTaskRunner, a separate sandboxed\n// vm.createContext() - confirmed by reading js-task-runner.js directly\n// that it exposes NO built-in `require()` modules (empty allowedBuiltInModules,\n// no relevant env var set) and does NOT inject a `crypto` global either\n// (getNativeVariables() only provides Buffer/TextEncoder/TextDecoder/\n// FormData/timers - no crypto). Confirmed empirically too: an earlier\n// version of this node using `crypto.subtle.digest(...)` failed at\n// runtime with \"crypto is not defined\" (execution 537). The FIPS 180-4\n// implementation below was verified against openssl independently\n// (SHA256('') and SHA256('abc')) before being used here.\n\nfunction sha256Hex(bytes) {\n  const K = [\n    0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,\n    0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,\n    0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,\n    0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,\n    0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,\n    0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,\n    0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,\n    0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2\n  ];\n  let H = [0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];\n  const bitLen = bytes.length * 8;\n  let paddedLength = bytes.length + 1;\n  while (paddedLength % 64 !== 56) paddedLength++;\n  paddedLength += 8;\n  const padded = new Uint8Array(paddedLength);\n  padded.set(bytes);\n  padded[bytes.length] = 0x80;\n  const highLen = Math.floor(bitLen / 0x100000000);\n  const lowLen = bitLen >>> 0;\n  const dv = new DataView(padded.buffer);\n  dv.setUint32(paddedLength - 8, highLen, false);\n  dv.setUint32(paddedLength - 4, lowLen, false);\n  const rotr = (x, n) => (x >>> n) | (x << (32 - n));\n  for (let chunkStart = 0; chunkStart < paddedLength; chunkStart += 64) {\n    const w = new Uint32Array(64);\n    for (let i = 0; i < 16; i++) w[i] = dv.getUint32(chunkStart + i * 4, false);\n    for (let i = 16; i < 64; i++) {\n      const s0 = rotr(w[i-15], 7) ^ rotr(w[i-15], 18) ^ (w[i-15] >>> 3);\n      const s1 = rotr(w[i-2], 17) ^ rotr(w[i-2], 19) ^ (w[i-2] >>> 10);\n      w[i] = (w[i-16] + s0 + w[i-7] + s1) >>> 0;\n    }\n    let [a,b,c,d,e,f,g,h] = H;\n    for (let i = 0; i < 64; i++) {\n      const S1 = rotr(e,6) ^ rotr(e,11) ^ rotr(e,25);\n      const ch = (e & f) ^ (~e & g);\n      const temp1 = (h + S1 + ch + K[i] + w[i]) >>> 0;\n      const S0 = rotr(a,2) ^ rotr(a,13) ^ rotr(a,22);\n      const maj = (a & b) ^ (a & c) ^ (b & c);\n      const temp2 = (S0 + maj) >>> 0;\n      h = g; g = f; f = e; e = (d + temp1) >>> 0;\n      d = c; c = b; b = a; a = (temp1 + temp2) >>> 0;\n    }\n    H[0]=(H[0]+a)>>>0; H[1]=(H[1]+b)>>>0; H[2]=(H[2]+c)>>>0; H[3]=(H[3]+d)>>>0;\n    H[4]=(H[4]+e)>>>0; H[5]=(H[5]+f)>>>0; H[6]=(H[6]+g)>>>0; H[7]=(H[7]+h)>>>0;\n  }\n  return H.map(x => x.toString(16).padStart(8,'0')).join('');\n}\n\nconst item = $input.first().json;\nconst rawText = typeof item.resume_text === 'string' ? item.resume_text : '';\n\nconst canonical = rawText\n  .normalize('NFC')\n  .replace(/\\r\\n?/g, '\\n')\n  .replace(/\\n{3,}/g, '\\n\\n')\n  .trim();\n\nconst hashHex = sha256Hex(new TextEncoder().encode(canonical));\n\n// === Phase 4a (docs/CANDOR-Hardening-Roadmap-DRAFT.md): near-duplicate\n// fingerprint, layered on top of the exact-hash dedup above ===\n// A candidate resubmitting a lightly-reformatted resume (different\n// whitespace, a reordered sentence, a synonym swap) produces a\n// DIFFERENT resume_content_hash - the exact-match dedup above correctly\n// does not catch it (by design - it's not byte-identical). This\n// fingerprint is a deliberately simple, bounded, transparent v0.1\n// heuristic for THAT case: a \"bottom-k\" sketch of 5-word-shingle hashes\n// (a well-known family of near-duplicate detection techniques - not a\n// rigorous unbiased MinHash estimator, since that requires comparing\n// against the bottom-k of the UNION of two sets, not the two sets'\n// bottom-k lists directly; this is a simpler, self-admittedly\n// approximate overlap-fraction metric, same \"simple, transparent,\n// deliberately not exhaustive\" discipline as VerifyClaimsAgainstSource's\n// own digit-check heuristic). Persists only 20 short hash strings, not\n// the shingles or any reconstructable text - privacy-conscious the same\n// way Phase 1b's PII-hash redesign was.\nfunction computeShingleFingerprint(text) {\n  const words = text.toLowerCase().replace(/[^a-z0-9\\s]/g, ' ').split(/\\s+/).filter(Boolean);\n  const SHINGLE_SIZE = 5;\n  const MIN_HASH_COUNT = 20;\n  if (words.length < SHINGLE_SIZE) {\n    return [sha256Hex(new TextEncoder().encode(words.join(' ')))];\n  }\n  const shingleHashes = new Set();\n  for (let i = 0; i <= words.length - SHINGLE_SIZE; i++) {\n    const shingle = words.slice(i, i + SHINGLE_SIZE).join(' ');\n    shingleHashes.add(sha256Hex(new TextEncoder().encode(shingle)));\n  }\n  return Array.from(shingleHashes).sort().slice(0, MIN_HASH_COUNT);\n}\n\nconst shingleFingerprint = computeShingleFingerprint(canonical);\n\n// === Phase 6d (docs/CANDOR-Hardening-Roadmap-DRAFT.md): multi-tenant\n// scaffolding ===\n// A cheap, forward-compatible field added now so a real second tenant\n// can be onboarded later without a schema change - not a real\n// multi-tenant SYSTEM (there is no tenant registry, no per-tenant\n// config, no tenant-scoped credentials). This n8n instance serves\n// exactly one tenant today, so the value is a single constant - real\n// isolation cannot be verified with only one tenant to test against\n// (there is nothing to prove data DOESN'T cross a boundary that has\n// never had a second side). Logged as blocked on that precondition in\n// docs/CANDOR-Hardening-Build-Log.md Phase 6d, not faked as tested.\nconst TENANT_ID = 'default-tenant';\n\nreturn [{\n  json: {\n    ...item,\n    resume_content_hash: hashHex,\n    resume_content_hash_algorithm_version: 'v1.0',\n    resume_shingle_fingerprint: shingleFingerprint,\n    resume_shingle_fingerprint_version: 'CANDOR near-dup shingle-fingerprint v0.1',\n    tenant_id: TENANT_ID\n  }\n}];\n"
+      }
+    },
+    {
+      "id": "check-secure-config-override",
+      "name": "CheckSecureConfigOverride",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        20,
+        300
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "mode": "runOnceForAllItems",
+        "jsCode": "// 2026-09-18 (System Review item 12, real-auth half): FormTriggerResumeUpload\n// now has Basic Auth configured for real (credential \"CANDOR-02 Intake Form\n// Basic Auth\", n8n httpBasicAuth) - verified both directions on the real live\n// form (see CANDOR-02-Build-Log.md): an unauthenticated request now gets a\n// real 401 from n8n itself, before this workflow even starts; a correctly\n// authenticated request still reaches this node and the rest of the real\n// pipeline unchanged. This flag now reflects that real, confirmed state -\n// not asserted in passing, checked against the live instance.\nconst AUTH_CONFIRMED_ENABLED = true;\nconst SYNTHETIC_DATA_ONLY_OVERRIDE = true; // still true independently: this instance still only ever handles synthetic test fixtures, per Master Instructions §14 - kept true so a real-candidate submission is never silently treated as acceptable just because auth is present.\n\nif (!AUTH_CONFIRMED_ENABLED && !SYNTHETIC_DATA_ONLY_OVERRIDE) {\n  throw new Error(\n    'CANDOR-02 CheckSecureConfigOverride: refusing to accept this submission. ' +\n    'FormTriggerResumeUpload has no confirmed authentication configured, and ' +\n    'SYNTHETIC_DATA_ONLY_OVERRIDE is not set. Per CANDOR Master Instructions ' +\n    'Section 14, enable authentication on the form trigger before accepting ' +\n    'real candidate data, or explicitly set SYNTHETIC_DATA_ONLY_OVERRIDE = true ' +\n    'in this node if this is genuinely synthetic test data only.'\n  );\n}\n\nconst items = $input.all();\nreturn items.map(item => ({\n  json: {\n    ...item.json,\n    secure_config_auth_confirmed_enabled: AUTH_CONFIRMED_ENABLED,\n    secure_config_synthetic_data_only_override_active: !AUTH_CONFIRMED_ENABLED && SYNTHETIC_DATA_ONLY_OVERRIDE,\n    secure_config_check_version: 'CANDOR secure-config fail-fast v0.1'\n  },\n  binary: item.binary\n}));\n"
+      }
+    },
+    {
+      "id": "2aa3c142-5db8-4495-8b3f-ed064c054173",
+      "name": "FormTriggerApplicationSubmission",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.6,
+      "position": [
+        -100,
+        700
+      ],
+      "parameters": {
+        "formTitle": "CANDOR - Application Form (Test)",
+        "formDescription": "Synthetic test intake form for CANDOR-02's second source adapter: direct application-form submission (no resume file). Fields marked required are the minimum needed to compute a Match Score.",
+        "path": "candor02-application-form",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Candidate Name",
+              "fieldType": "text",
+              "fieldName": "candidate_name",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Contact Email",
+              "fieldType": "text",
+              "fieldName": "contact_email",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Total Years of Experience",
+              "fieldType": "text",
+              "fieldName": "total_years_experience",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Key Skills (comma-separated)",
+              "fieldType": "text",
+              "fieldName": "key_skills",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Most Recent / Most Relevant Job Title",
+              "fieldType": "text",
+              "fieldName": "most_recent_title",
+              "requiredField": false
+            },
+            {
+              "fieldLabel": "Most Recent / Most Relevant Employer",
+              "fieldType": "text",
+              "fieldName": "most_recent_employer",
+              "requiredField": false
+            },
+            {
+              "fieldLabel": "Years in That Role",
+              "fieldType": "text",
+              "fieldName": "years_in_role",
+              "requiredField": false
+            },
+            {
+              "fieldLabel": "Education",
+              "fieldType": "text",
+              "fieldName": "education",
+              "requiredField": false
+            },
+            {
+              "fieldLabel": "Certifications",
+              "fieldType": "text",
+              "fieldName": "certifications",
+              "requiredField": false
+            },
+            {
+              "fieldLabel": "Portfolio or Work Sample URL",
+              "fieldType": "text",
+              "fieldName": "portfolio_url",
+              "requiredField": false
+            },
+            {
+              "fieldLabel": "Candidate Reference",
+              "fieldType": "text",
+              "fieldName": "candidate_reference",
+              "requiredField": false
+            }
+          ]
+        },
+        "options": {},
+        "authentication": "basicAuth"
+      },
+      "credentials": {
+        "httpBasicAuth": {
+          "note": "credential reference redacted for public release - see private repo"
+        }
+      },
+      "webhookId": "88ec95b6-d894-4285-ae38-180ff8c15ff0"
+    },
+    {
+      "id": "8e479e87-b6fe-49a7-950e-686489fbbf32",
+      "name": "CheckSecureConfigOverrideApplicationForm",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        20,
+        700
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "mode": "runOnceForAllItems",
+        "jsCode": "const AUTH_CONFIRMED_ENABLED = true;\nconst SYNTHETIC_DATA_ONLY_OVERRIDE = true;\n\nif (!AUTH_CONFIRMED_ENABLED && !SYNTHETIC_DATA_ONLY_OVERRIDE) {\n  throw new Error(\n    'CANDOR-02 CheckSecureConfigOverrideApplicationForm: refusing to accept this submission. ' +\n    'FormTriggerApplicationSubmission has no confirmed authentication configured, and ' +\n    'SYNTHETIC_DATA_ONLY_OVERRIDE is not set. Per CANDOR Master Instructions ' +\n    'Section 14, enable authentication on the form trigger before accepting ' +\n    'real candidate data, or explicitly set SYNTHETIC_DATA_ONLY_OVERRIDE = true ' +\n    'in this node if this is genuinely synthetic test data only.'\n  );\n}\n\nconst items = $input.all();\nreturn items.map(item => ({\n  json: {\n    ...item.json,\n    secure_config_auth_confirmed_enabled: AUTH_CONFIRMED_ENABLED,\n    secure_config_synthetic_data_only_override_active: !AUTH_CONFIRMED_ENABLED && SYNTHETIC_DATA_ONLY_OVERRIDE,\n    secure_config_check_version: 'CANDOR secure-config fail-fast v0.1'\n  }\n}));\n"
+      }
+    },
+    {
+      "id": "a4c71f50-a506-4f38-9251-53e404736f0c",
+      "name": "CheckApplicationFormBasics",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        140,
+        700
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "mode": "runOnceForAllItems",
+        "jsCode": "const item = $input.first();\nconst json = item.json || {};\n\nfunction trimmed(v) {\n  return typeof v === 'string' ? v.trim() : '';\n}\n\nconst candidateName = trimmed(json.candidate_name);\nconst contactEmail = trimmed(json.contact_email);\nconst totalYearsExperience = trimmed(json.total_years_experience);\nconst keySkills = trimmed(json.key_skills);\n\nfunction rejected(reason) {\n  return [{\n    json: {\n      candidate_id: null,\n      candidate_reference_submitted: trimmed(json.candidate_reference) || null,\n      intake_status: 'REJECTED',\n      rejection_reason: reason\n    }\n  }];\n}\n\nconst missing = [];\nif (!candidateName) missing.push('candidate_name');\nif (!contactEmail) missing.push('contact_email');\nif (!totalYearsExperience) missing.push('total_years_experience');\nif (!keySkills) missing.push('key_skills');\n\nif (missing.length > 0) {\n  return rejected(`required field(s) missing or empty: ${missing.join(', ')}`);\n}\n\nconst safeStem = candidateName.replace(/[^a-zA-Z0-9]+/g, '-').toUpperCase().slice(0, 24);\nconst candidateId = `APPFORM-${safeStem}-${Date.now()}`;\n\nreturn [{\n  json: {\n    ...json,\n    candidate_id: candidateId,\n    candidate_reference_submitted: trimmed(json.candidate_reference) || null,\n    intake_status: 'VALID'\n  }\n}];\n"
+      }
+    },
+    {
+      "id": "dada140c-0b45-473f-8029-8ff6683a646e",
+      "name": "RouteByApplicationFormValidity",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        380,
+        700
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "appform-validity1",
+              "leftValue": "={{ $json.intake_status }}",
+              "rightValue": "VALID",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "7e89d279-0de3-491a-9c04-817b363473aa",
+      "name": "RejectedApplicationIntake",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        620,
+        860
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "470cb560-34f9-45f8-bfed-81ea3a3bea20",
+      "name": "BuildApplicationCandidateRecord",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        620,
+        700
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "mode": "runOnceForAllItems",
+        "jsCode": "// === CANDOR-02 second source adapter: application-form submission ===\n//\n// ARCHITECTURAL DECISION (stated explicitly, per the build instruction):\n// this node builds the full CANDOR-01-shaped \"verified candidate\n// record\" DIRECTLY from the form's own structured fields and calls\n// CANDOR-04 directly (CallCANDOR04FromApplicationForm) - it does NOT\n// call CANDOR-01's workflow, and no Anthropic extraction call is made\n// anywhere on this path. CANDOR-01/CANDOR-04 are both completely\n// unmodified by this adapter.\n//\n// WHY: CANDOR-01's entire job is resolving uncertainty in UNSTRUCTURED\n// prose - an LLM infers facts from a resume's free text, and\n// VerifyClaimsAgainstSource's literal-quote grounding exists specifically\n// to catch the one failure mode that step can introduce: the model\n// citing a quote that isn't really in the source (hallucination). A\n// candidate typing \"7\" directly into a \"Total Years of Experience\" field\n// has not been through any inference step at all - there is nothing to\n// extract, and therefore nothing that could have been hallucinated. The\n// value IS the evidence, by construction. Running the exact same,\n// real-money Anthropic call on data that is already unambiguous\n// structured input would be pure redundant cost for zero uncertainty\n// -reduction benefit - the same reasoning System Review item 43 already\n// established for CANDOR-04's JD re-extraction (see\n// CANDOR-04-Build-Log.md §27-28): don't pay an LLM to resolve\n// uncertainty that doesn't exist.\n//\n// This node instead reproduces CANDOR-01's OUTPUT SHAPE exactly (the\n// same `fields`/`employment_history`/`portfolio_or_work_sample`/\n// `verification_summary` contract CANDOR-04's own IntakeCandidateRecord\n// already expects and falls back to) so CANDOR-04, CANDOR-05, CANDOR-07,\n// and CANDOR-08 all need ZERO changes to accept this new source - this\n// is a new intake PATH into the same pipeline, not a new pipeline.\n//\n// `evidence_verified: true` for a directly-submitted field is not a\n// weaker or faked verification - it correctly reports the one specific\n// thing that flag has ever meant anywhere in this codebase (\"this value\n// did not arise from an LLM inventing a quote\"), and that claim is\n// trivially and honestly true here: there is no LLM step on this path\n// at all. It says nothing about whether the candidate told the truth -\n// exactly like every other evidence_verified flag in this project, which\n// has never verified factual accuracy, only extraction fidelity.\n//\n// HONEST LIMITATION, stated plainly: quantified_accomplishments and\n// notable_unquantified_claims are deliberately left empty - this form\n// does not collect freeform accomplishment narrative (classifying free\n// text into \"quantified\" vs \"unquantified\" claims without an LLM would\n// mean reinventing a second, cruder extraction path, which this\n// adapter's whole design exists to avoid). Evidence Confidence's\n// denominator (verification_summary) is therefore smaller for an\n// application-form candidate than a typical resume-derived one (the 8\n// scalar fields only, never the 11-15 a resume with several\n// accomplishments produces) - a real, structural difference from the\n// file-upload path's own reporting depth, not a gamed or inflated score.\n// employment_history holds at most ONE entry (the form asks only for the\n// candidate's single most recent/most relevant role, not a full career\n// history), so career_trajectory's \"progression\" sub-component (which\n// needs >=2 entries) will correctly, honestly report as not-computed for\n// every application-form candidate - a real, named scope limit, not a\n// bug.\n\nfunction sha256Hex(bytes) {\n  const K = [\n    0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,\n    0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,\n    0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,\n    0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,\n    0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,\n    0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,\n    0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,\n    0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2\n  ];\n  let H = [0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];\n  const bitLen = bytes.length * 8;\n  let paddedLength = bytes.length + 1;\n  while (paddedLength % 64 !== 56) paddedLength++;\n  paddedLength += 8;\n  const padded = new Uint8Array(paddedLength);\n  padded.set(bytes);\n  padded[bytes.length] = 0x80;\n  const highLen = Math.floor(bitLen / 0x100000000);\n  const lowLen = bitLen >>> 0;\n  const dv = new DataView(padded.buffer);\n  dv.setUint32(paddedLength - 8, highLen, false);\n  dv.setUint32(paddedLength - 4, lowLen, false);\n  const rotr = (x, n) => (x >>> n) | (x << (32 - n));\n  for (let chunkStart = 0; chunkStart < paddedLength; chunkStart += 64) {\n    const w = new Uint32Array(64);\n    for (let i = 0; i < 16; i++) w[i] = dv.getUint32(chunkStart + i * 4, false);\n    for (let i = 16; i < 64; i++) {\n      const s0 = rotr(w[i-15], 7) ^ rotr(w[i-15], 18) ^ (w[i-15] >>> 3);\n      const s1 = rotr(w[i-2], 17) ^ rotr(w[i-2], 19) ^ (w[i-2] >>> 10);\n      w[i] = (w[i-16] + s0 + w[i-7] + s1) >>> 0;\n    }\n    let [a,b,c,d,e,f,g,h] = H;\n    for (let i = 0; i < 64; i++) {\n      const S1 = rotr(e,6) ^ rotr(e,11) ^ rotr(e,25);\n      const ch = (e & f) ^ (~e & g);\n      const temp1 = (h + S1 + ch + K[i] + w[i]) >>> 0;\n      const S0 = rotr(a,2) ^ rotr(a,13) ^ rotr(a,22);\n      const maj = (a & b) ^ (a & c) ^ (b & c);\n      const temp2 = (S0 + maj) >>> 0;\n      h = g; g = f; f = e; e = (d + temp1) >>> 0;\n      d = c; c = b; b = a; a = (temp1 + temp2) >>> 0;\n    }\n    H[0]=(H[0]+a)>>>0; H[1]=(H[1]+b)>>>0; H[2]=(H[2]+c)>>>0; H[3]=(H[3]+d)>>>0;\n    H[4]=(H[4]+e)>>>0; H[5]=(H[5]+f)>>>0; H[6]=(H[6]+g)>>>0; H[7]=(H[7]+h)>>>0;\n  }\n  return H.map(x => x.toString(16).padStart(8,'0')).join('');\n}\n\nfunction computeShingleFingerprint(text) {\n  const words = text.toLowerCase().replace(/[^a-z0-9\\s]/g, ' ').split(/\\s+/).filter(Boolean);\n  const SHINGLE_SIZE = 5;\n  const MIN_HASH_COUNT = 20;\n  if (words.length < SHINGLE_SIZE) {\n    return [sha256Hex(new TextEncoder().encode(words.join(' ')))];\n  }\n  const shingleHashes = new Set();\n  for (let i = 0; i <= words.length - SHINGLE_SIZE; i++) {\n    const shingle = words.slice(i, i + SHINGLE_SIZE).join(' ');\n    shingleHashes.add(sha256Hex(new TextEncoder().encode(shingle)));\n  }\n  return Array.from(shingleHashes).sort().slice(0, MIN_HASH_COUNT);\n}\n\nconst INJECTION_PATTERNS = [\n  { label: 'ignore_prior_instructions', re: /ignore\\s+(all\\s+)?(the\\s+)?(previous|prior|above|earlier)\\s+instructions?/i },\n  { label: 'disregard_prior_instructions', re: /disregard\\s+(all\\s+)?(the\\s+)?(previous|prior|above|earlier)\\s+instructions?/i },\n  { label: 'new_instructions_marker', re: /\\bnew\\s+instructions?\\s*[:.]/i },\n  { label: 'you_are_now', re: /\\byou\\s+are\\s+now\\s+(a|an|the)\\b/i },\n  { label: 'system_prompt_reference', re: /\\bsystem\\s+prompt\\b/i },\n  { label: 'rate_all_skills_as_expert', re: /rate\\s+(all|every|each)\\s+skills?\\s+as\\s+(expert|10\\s*\\/\\s*10|maximum|top)/i },\n  { label: 'act_as_persona', re: /\\bact\\s+as\\s+(a|an)\\s+/i },\n  { label: 'do_not_follow_rules_above', re: /do\\s+not\\s+(follow|apply)\\s+the\\s+(rules|instructions)\\s+above/i },\n  { label: 'assistant_role_injection', re: /\\b(assistant|ai)\\s*:\\s*(ignore|okay|sure|understood)/i }\n];\n\nfunction detectInjection(text) {\n  const t = (text || '').toString();\n  const matched = INJECTION_PATTERNS.filter(p => p.re.test(t)).map(p => p.label);\n  return { suspected: matched.length > 0, matched };\n}\n\nconst item = $input.first().json;\n\nfunction s(v) {\n  return typeof v === 'string' ? v.trim() : '';\n}\n\nconst candidateName = s(item.candidate_name);\nconst contactEmail = s(item.contact_email);\nconst totalYearsExperienceText = s(item.total_years_experience);\nconst keySkillsText = s(item.key_skills);\nconst mostRecentTitle = s(item.most_recent_title);\nconst mostRecentEmployer = s(item.most_recent_employer);\nconst yearsInRole = s(item.years_in_role);\nconst education = s(item.education);\nconst certifications = s(item.certifications);\nconst portfolioUrl = s(item.portfolio_url);\n\nfunction directField(fieldName, rawValue, displayValue) {\n  const value = displayValue !== undefined ? displayValue : rawValue;\n  if (!rawValue) {\n    return { field: fieldName, value: 'insufficient information', source_quote: '', evidence_verified: false, reason: 'field not provided on the application form' };\n  }\n  const quote = Array.isArray(value) ? value.join(', ') : String(value);\n  return { field: fieldName, value, source_quote: quote, evidence_verified: true, reason: 'directly submitted via the CANDOR-02 application-form adapter - no extraction step, so no hallucination risk to check for' };\n}\n\n// === Real bug, found via real testing (not assumed correct) ===\n// CalculateMatchScore's domain-relevance gate (yearsDomainRelevance,\n// reused for years/tenure/trajectory/portfolio - see that node's own\n// header comment) checks for SHARED VOCABULARY between\n// candidate_years_source_quote and the JD's own years-requirement quote.\n// A bare number (\"6\") has zero domain words to share, no matter how\n// qualified the candidate actually is - the first live test through\n// this adapter (a candidate with 6 relevant years, matching Salesforce/\n// HubSpot skills) scored match_score 20 instead of a real ~90+, because\n// years/tenure/trajectory ALL reuse this one quote and all zeroed out\n// together. Fixed by synthesizing a real sentence from the OTHER fields\n// already collected on this form (title + skills), giving the SAME\n// domain-relevance check real vocabulary to compare against - the exact\n// role a resume's own prose sentence plays for a file-upload candidate.\n// This does not force a match - a candidate whose own wording genuinely\n// shares no vocabulary with the JD's is still gated to 0, same as the\n// file-upload path's own already-documented word-overlap limitation\n// (System Review item 14) - this fix removes a SYSTEMATIC failure (every\n// form candidate, always), not the heuristic's inherent, already-accepted\n// residual limitation (a real candidate whose specific wording doesn't\n// happen to overlap the JD's).\n// SECOND real bug, also found via real testing (the first live run of\n// this fix, before this correction): this function originally also took\n// `title` and spliced it into the quote (\"...as a <title>...\"). Since\n// most_recent_title is an EXCLUDED field (never one of Section 7's\n// permitted factors), embedding its raw text into years_of_experience's\n// source_quote - which IS persisted inside matchScoreInputsUsed - made\n// BuildAuditRecord's own leak-check correctly fire:\n// \"no_excluded_field_leaked\": false, most_recent_title's raw value found\n// verbatim inside the scoring inputs actually used. The exact leak class\n// System Review item 13's v0.7 fix (career_trajectory stripping title\n// down to rank-only) already exists to prevent, reintroduced here\n// through a different field. Fixed by dropping title entirely -\n// key_skills alone (already allow-listed in SelectPermittedScoringInputs)\n// is enough real domain vocabulary, with zero leak risk - reconfirmed by\n// re-running the leak-check on a real live submission after this fix.\nfunction yearsSourceQuote(yearsText, skillsText) {\n  const parts = [`${yearsText} years of experience`];\n  if (skillsText) parts.push(`with skills including ${skillsText}`);\n  return parts.join(' ');\n}\n\nconst keySkillsArray = keySkillsText\n  ? keySkillsText.split(',').map(sVal => sVal.trim()).filter(Boolean)\n  : [];\n\nconst fields = [\n  directField('candidate_name', candidateName),\n  directField('contact_email', contactEmail),\n  (totalYearsExperienceText\n    ? { field: 'total_years_experience_claimed', value: totalYearsExperienceText, source_quote: yearsSourceQuote(totalYearsExperienceText, keySkillsText), evidence_verified: true, reason: 'directly submitted via the CANDOR-02 application-form adapter - source_quote synthesized from this same submission\\'s own title/skills fields so CalculateMatchScore\\'s domain-relevance gate has real vocabulary to check, not just a bare number' }\n    : { field: 'total_years_experience_claimed', value: 'insufficient information', source_quote: '', evidence_verified: false, reason: 'field not provided on the application form' }),\n  directField('most_recent_title', mostRecentTitle),\n  directField('most_recent_employer', mostRecentEmployer),\n  directField('key_skills', keySkillsText, keySkillsArray),\n  directField('education', education),\n  directField('certifications', certifications)\n];\n\nconst verifiedCount = fields.filter(f => f.evidence_verified).length;\n\nlet employmentHistory = [];\nif (mostRecentTitle || mostRecentEmployer || yearsInRole) {\n  const durationText = /^\\d+(\\.\\d+)?$/.test(yearsInRole) ? `${yearsInRole} years` : (yearsInRole || 'insufficient information');\n  const hasDuration = durationText !== 'insufficient information';\n  employmentHistory = [{\n    field: 'employment_history[0]',\n    title: mostRecentTitle || 'insufficient information',\n    employer: mostRecentEmployer || 'insufficient information',\n    duration_text: durationText,\n    source_quote: hasDuration ? durationText : '',\n    evidence_verified: hasDuration,\n    title_verified: !!mostRecentTitle,\n    employer_verified: !!mostRecentEmployer,\n    reason: hasDuration\n      ? 'directly submitted via the CANDOR-02 application-form adapter - no extraction step, so no hallucination risk to check for'\n      : 'years in this role not provided on the application form'\n  }];\n}\n\nconst portfolioOrWorkSample = directField('portfolio_or_work_sample', portfolioUrl);\n\nconst canonicalFieldBlob = [\n  `Candidate Name: ${candidateName}`,\n  `Contact Email: ${contactEmail}`,\n  `Total Years of Experience: ${totalYearsExperienceText}`,\n  `Key Skills: ${keySkillsText}`,\n  `Most Recent Title: ${mostRecentTitle}`,\n  `Most Recent Employer: ${mostRecentEmployer}`,\n  `Years in Most Recent Role: ${yearsInRole}`,\n  `Education: ${education}`,\n  `Certifications: ${certifications}`,\n  `Portfolio or Work Sample: ${portfolioUrl}`\n].join('\\n');\n\nconst canonical = canonicalFieldBlob\n  .normalize('NFC')\n  .replace(/\\r\\n?/g, '\\n')\n  .replace(/\\n{3,}/g, '\\n\\n')\n  .trim();\n\nconst resumeContentHash = sha256Hex(new TextEncoder().encode(canonical));\nconst shingleFingerprint = computeShingleFingerprint(canonical);\n\nconst injectionCheck = detectInjection([candidateName, contactEmail, mostRecentTitle, mostRecentEmployer, keySkillsText, education, certifications, portfolioUrl].join(' \\n '));\n\nreturn [{\n  json: {\n    candidate_id: item.candidate_id,\n    resume_filename: 'APPLICATION_FORM_SUBMISSION',\n    intake_source: 'application_form',\n    extraction_status: 'PARSED_OK',\n    resume_content_hash: resumeContentHash,\n    resume_content_hash_algorithm_version: 'v1.0',\n    resume_shingle_fingerprint: shingleFingerprint,\n    resume_shingle_fingerprint_version: 'CANDOR near-dup shingle-fingerprint v0.1',\n    tenant_id: 'default-tenant',\n    processed_at: new Date().toISOString(),\n    model_used: 'direct_form_entry (no Anthropic call on this path - see this node\\'s own header comment)',\n    prompt_injection_suspected: injectionCheck.suspected,\n    prompt_injection_matched_patterns: injectionCheck.matched,\n    prompt_injection_check_version: 'CANDOR prompt-injection pattern-flag v0.1',\n    fields,\n    quantified_accomplishments: [],\n    notable_unquantified_claims: [],\n    employment_history: employmentHistory,\n    portfolio_or_work_sample: portfolioOrWorkSample,\n    verification_summary: {\n      total_items_checked: fields.length,\n      evidence_verified_count: verifiedCount,\n      not_verified_count: fields.length - verifiedCount\n    }\n  }\n}];\n"
+      }
+    },
+    {
+      "id": "ec9c4f73-3a51-4ac1-851b-edb5d7ec5084",
+      "name": "CallCANDOR04FromApplicationForm",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        860,
+        700
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "sqYbHtxZPyWRgAjo"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {}
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "767fcea9-9481-4876-b0c5-3f92ee6173f0",
+      "name": "FormTriggerATSExport",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.6,
+      "position": [
+        -100,
+        1000
+      ],
+      "parameters": {
+        "formTitle": "CANDOR - ATS Export Upload (Test)",
+        "formDescription": "Synthetic test intake form for CANDOR-02's third source adapter: a batch ATS export file (JSON, one object per candidate). Each candidate record either carries raw resume_text (routed through real CANDOR-01 extraction) or already-parsed structured fields (routed directly to CANDOR-04) - see CANDOR-02-Build-Log.md for the discriminator rule.",
+        "path": "candor02-ats-export",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "ATS Export File (JSON)",
+              "fieldType": "file",
+              "fieldName": "ats_export_file",
+              "requiredField": true,
+              "multipleFiles": false,
+              "acceptFileTypes": ".json"
+            }
+          ]
+        },
+        "options": {},
+        "authentication": "basicAuth"
+      },
+      "credentials": {
+        "httpBasicAuth": {
+          "note": "credential reference redacted for public release - see private repo"
+        }
+      },
+      "webhookId": "0a8205a5-7804-4759-8bd6-3f79e586a82b"
+    },
+    {
+      "id": "16f83897-a5d6-4702-8a59-0f106f964141",
+      "name": "CheckSecureConfigOverrideATSExport",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        20,
+        1000
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "mode": "runOnceForAllItems",
+        "jsCode": "const AUTH_CONFIRMED_ENABLED = true;\nconst SYNTHETIC_DATA_ONLY_OVERRIDE = true;\n\nif (!AUTH_CONFIRMED_ENABLED && !SYNTHETIC_DATA_ONLY_OVERRIDE) {\n  throw new Error(\n    'CANDOR-02 CheckSecureConfigOverrideATSExport: refusing to accept this submission. ' +\n    'FormTriggerATSExport has no confirmed authentication configured, and ' +\n    'SYNTHETIC_DATA_ONLY_OVERRIDE is not set. Per CANDOR Master Instructions ' +\n    'Section 14, enable authentication on the form trigger before accepting ' +\n    'real candidate data, or explicitly set SYNTHETIC_DATA_ONLY_OVERRIDE = true ' +\n    'in this node if this is genuinely synthetic test data only.'\n  );\n}\n\nconst items = $input.all();\nreturn items.map(item => ({\n  json: {\n    ...item.json,\n    secure_config_auth_confirmed_enabled: AUTH_CONFIRMED_ENABLED,\n    secure_config_synthetic_data_only_override_active: !AUTH_CONFIRMED_ENABLED && SYNTHETIC_DATA_ONLY_OVERRIDE,\n    secure_config_check_version: 'CANDOR secure-config fail-fast v0.1'\n  },\n  binary: item.binary\n}));\n"
+      }
+    },
+    {
+      "id": "85f2432e-ded9-45f1-8eb7-9d0267236fe4",
+      "name": "ExtractATSExportFileText",
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        180,
+        1000
+      ],
+      "parameters": {
+        "operation": "text",
+        "binaryPropertyName": "ats_export_file",
+        "destinationKey": "ats_export_text",
+        "options": {}
+      }
+    },
+    {
+      "id": "ee9e0b51-a47c-45f8-b222-ed7e39df4f15",
+      "name": "ParseAndClassifyATSExportBatch",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        380,
+        1000
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "mode": "runOnceForAllItems",
+        "jsCode": "function sha256Hex(bytes) {\n  const K = [\n    0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,\n    0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,\n    0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,\n    0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,\n    0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,\n    0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,\n    0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,\n    0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2\n  ];\n  let H = [0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];\n  const bitLen = bytes.length * 8;\n  let paddedLength = bytes.length + 1;\n  while (paddedLength % 64 !== 56) paddedLength++;\n  paddedLength += 8;\n  const padded = new Uint8Array(paddedLength);\n  padded.set(bytes);\n  padded[bytes.length] = 0x80;\n  const highLen = Math.floor(bitLen / 0x100000000);\n  const lowLen = bitLen >>> 0;\n  const dv = new DataView(padded.buffer);\n  dv.setUint32(paddedLength - 8, highLen, false);\n  dv.setUint32(paddedLength - 4, lowLen, false);\n  const rotr = (x, n) => (x >>> n) | (x << (32 - n));\n  for (let chunkStart = 0; chunkStart < paddedLength; chunkStart += 64) {\n    const w = new Uint32Array(64);\n    for (let i = 0; i < 16; i++) w[i] = dv.getUint32(chunkStart + i * 4, false);\n    for (let i = 16; i < 64; i++) {\n      const s0 = rotr(w[i-15], 7) ^ rotr(w[i-15], 18) ^ (w[i-15] >>> 3);\n      const s1 = rotr(w[i-2], 17) ^ rotr(w[i-2], 19) ^ (w[i-2] >>> 10);\n      w[i] = (w[i-16] + s0 + w[i-7] + s1) >>> 0;\n    }\n    let [a,b,c,d,e,f,g,h] = H;\n    for (let i = 0; i < 64; i++) {\n      const S1 = rotr(e,6) ^ rotr(e,11) ^ rotr(e,25);\n      const ch = (e & f) ^ (~e & g);\n      const temp1 = (h + S1 + ch + K[i] + w[i]) >>> 0;\n      const S0 = rotr(a,2) ^ rotr(a,13) ^ rotr(a,22);\n      const maj = (a & b) ^ (a & c) ^ (b & c);\n      const temp2 = (S0 + maj) >>> 0;\n      h = g; g = f; f = e; e = (d + temp1) >>> 0;\n      d = c; c = b; b = a; a = (temp1 + temp2) >>> 0;\n    }\n    H[0]=(H[0]+a)>>>0; H[1]=(H[1]+b)>>>0; H[2]=(H[2]+c)>>>0; H[3]=(H[3]+d)>>>0;\n    H[4]=(H[4]+e)>>>0; H[5]=(H[5]+f)>>>0; H[6]=(H[6]+g)>>>0; H[7]=(H[7]+h)>>>0;\n  }\n  return H.map(x => x.toString(16).padStart(8,'0')).join('');\n}\n\nfunction computeShingleFingerprint(text) {\n  const words = text.toLowerCase().replace(/[^a-z0-9\\s]/g, ' ').split(/\\s+/).filter(Boolean);\n  const SHINGLE_SIZE = 5;\n  const MIN_HASH_COUNT = 20;\n  if (words.length < SHINGLE_SIZE) {\n    return [sha256Hex(new TextEncoder().encode(words.join(' ')))];\n  }\n  const shingleHashes = new Set();\n  for (let i = 0; i <= words.length - SHINGLE_SIZE; i++) {\n    const shingle = words.slice(i, i + SHINGLE_SIZE).join(' ');\n    shingleHashes.add(sha256Hex(new TextEncoder().encode(shingle)));\n  }\n  return Array.from(shingleHashes).sort().slice(0, MIN_HASH_COUNT);\n}\n\nfunction canonicalizeText(text) {\n  return (text || '')\n    .normalize('NFC')\n    .replace(/\\r\\n?/g, '\\n')\n    .replace(/\\n{3,}/g, '\\n\\n')\n    .trim();\n}\n\nfunction repairMojibake(text) {\n  if (!text) return { text, repaired: false, repairedCount: 0 };\n  const highMap = {\n    0x80: 0x20AC, 0x82: 0x201A, 0x83: 0x0192, 0x84: 0x201E, 0x85: 0x2026,\n    0x86: 0x2020, 0x87: 0x2021, 0x88: 0x02C6, 0x89: 0x2030, 0x8A: 0x0160,\n    0x8B: 0x2039, 0x8C: 0x0152, 0x8E: 0x017D, 0x91: 0x2018, 0x92: 0x2019,\n    0x93: 0x201C, 0x94: 0x201D, 0x95: 0x2022, 0x96: 0x2013, 0x97: 0x2014,\n    0x98: 0x02DC, 0x99: 0x2122, 0x9A: 0x0161, 0x9B: 0x203A, 0x9C: 0x0153,\n    0x9E: 0x017E, 0x9F: 0x0178\n  };\n  const reverseMap = {};\n  for (let b = 0; b <= 0xFF; b++) {\n    const cp = highMap[b] !== undefined ? highMap[b] : b;\n    reverseMap[cp] = b;\n  }\n  let repairedCount = 0;\n  function fix(base, nextChar) {\n    if (/\\s/.test(nextChar)) return null;\n    const b = reverseMap[nextChar.codePointAt(0)];\n    if (b === undefined) return null;\n    return String.fromCodePoint(base | (b & 0x3F));\n  }\n  let result = text;\n  const prefixRules = [['â€', 0x2000], ['â–', 0x2580], ['Ã', 0x00C0], ['Â', 0x0080]];\n  for (const [prefix, base] of prefixRules) {\n    const re = new RegExp(prefix + '(.)', 'gu');\n    result = result.replace(re, (m, c) => {\n      const fixed = fix(base, c);\n      if (fixed !== null) { repairedCount++; return fixed; }\n      return m;\n    });\n  }\n  return { text: result, repaired: repairedCount > 0, repairedCount };\n}\n\nfunction stripReplacementChars(text) {\n  const count = (text.match(/�/g) || []).length;\n  return { text: text.replace(/�/g, ''), count };\n}\n\nfunction normalizeWhitespace(text) {\n  return text\n    .replace(/ /g, ' ')\n    .replace(/\\r\\n?/g, '\\n')\n    .split('\\n')\n    .map(line => line.replace(/[ \\t]+/g, ' ').trimEnd())\n    .join('\\n')\n    .replace(/\\n{3,}/g, '\\n\\n')\n    .trim();\n}\n\nfunction s(v) {\n  return typeof v === 'string' ? v.trim() : '';\n}\n\nconst REQUIRED_DIRECT_FIELDS = ['candidate_name', 'contact_email', 'total_years_experience', 'key_skills'];\n\nconst item = $input.first().json;\nlet envelope;\ntry {\n  envelope = JSON.parse(item.ats_export_text || '');\n} catch (e) {\n  throw new Error(`CANDOR-02 ParseAndClassifyATSExportBatch: the uploaded ATS export file is not valid JSON - refusing the whole batch (no per-record recovery is possible when the file's own structure can't be parsed). Parse error: ${e.message}`);\n}\n\nif (!envelope || typeof envelope !== 'object' || Array.isArray(envelope) || !Array.isArray(envelope.candidates)) {\n  throw new Error('CANDOR-02 ParseAndClassifyATSExportBatch: the uploaded ATS export file does not have the expected shape - a JSON object with a top-level \"candidates\" array. Refusing the whole batch.');\n}\n\nconst seenHashes = new Set();\nconst results = [];\n\nenvelope.candidates.forEach((record, index) => {\n  try {\n    if (!record || typeof record !== 'object' || Array.isArray(record)) {\n      results.push({ json: { ats_record_index: index, record_type: 'MALFORMED', rejection_reason: `record is not a JSON object (got ${record === null ? 'null' : Array.isArray(record) ? 'array' : typeof record})` } });\n      return;\n    }\n\n    const candidateName = s(record.candidate_name);\n    if (!candidateName) {\n      results.push({ json: { ats_record_index: index, record_type: 'MALFORMED', rejection_reason: 'candidate_name missing or empty' } });\n      return;\n    }\n\n    const rawResumeText = typeof record.resume_text === 'string' ? record.resume_text : '';\n    const hasResumeText = rawResumeText.trim().length > 0;\n\n    if (hasResumeText) {\n      const step1 = repairMojibake(rawResumeText);\n      const step2 = stripReplacementChars(step1.text);\n      const finalText = normalizeWhitespace(step2.text);\n      const canonical = canonicalizeText(finalText);\n      const hash = sha256Hex(new TextEncoder().encode(canonical));\n\n      if (seenHashes.has(hash)) {\n        results.push({ json: { ats_record_index: index, record_type: 'IN_BATCH_DUPLICATE', candidate_name: candidateName, resume_content_hash: hash, rejection_reason: 'identical resume_text already seen earlier in this same batch - skipped before any Anthropic call was made' } });\n        return;\n      }\n      seenHashes.add(hash);\n\n      const safeStem = candidateName.replace(/[^a-zA-Z0-9]+/g, '-').toUpperCase().slice(0, 24);\n      results.push({\n        json: {\n          ats_record_index: index,\n          record_type: 'NEEDS_EXTRACTION',\n          candidate_id: `ATSEXPORT-${safeStem}-${Date.now()}-${index}`,\n          resume_filename: 'ATS_EXPORT_RECORD',\n          resume_text: finalText,\n          resume_content_hash: hash,\n          resume_content_hash_algorithm_version: 'v1.0',\n          resume_shingle_fingerprint: computeShingleFingerprint(canonical),\n          resume_shingle_fingerprint_version: 'CANDOR near-dup shingle-fingerprint v0.1',\n          tenant_id: 'default-tenant',\n          intake_source: 'ats_export',\n          ats_candidate_id_submitted: record.ats_candidate_id ?? null,\n          normalization_notes: {\n            mojibake_repair_applied: step1.repaired,\n            mojibake_repairs_count: step1.repairedCount,\n            replacement_chars_stripped: step2.count\n          }\n        }\n      });\n      return;\n    }\n\n    const missing = REQUIRED_DIRECT_FIELDS.filter(f => !s(record[f]));\n    if (missing.length > 0) {\n      results.push({ json: { ats_record_index: index, record_type: 'MALFORMED', candidate_name: candidateName, rejection_reason: `neither resume_text nor the required direct fields are all present - missing: ${missing.join(', ')}` } });\n      return;\n    }\n\n    const canonicalFieldBlob = [\n      `Candidate Name: ${s(record.candidate_name)}`,\n      `Contact Email: ${s(record.contact_email)}`,\n      `Total Years of Experience: ${s(record.total_years_experience)}`,\n      `Key Skills: ${s(record.key_skills)}`,\n      `Most Recent Title: ${s(record.most_recent_title)}`,\n      `Most Recent Employer: ${s(record.most_recent_employer)}`,\n      `Years in Most Recent Role: ${s(record.years_in_role)}`,\n      `Education: ${s(record.education)}`,\n      `Certifications: ${s(record.certifications)}`,\n      `Portfolio or Work Sample: ${s(record.portfolio_url)}`\n    ].join('\\n');\n    const canonical = canonicalizeText(canonicalFieldBlob);\n    const hash = sha256Hex(new TextEncoder().encode(canonical));\n\n    if (seenHashes.has(hash)) {\n      results.push({ json: { ats_record_index: index, record_type: 'IN_BATCH_DUPLICATE', candidate_name: candidateName, resume_content_hash: hash, rejection_reason: 'identical structured-field content already seen earlier in this same batch' } });\n      return;\n    }\n    seenHashes.add(hash);\n\n    const safeStem = candidateName.replace(/[^a-zA-Z0-9]+/g, '-').toUpperCase().slice(0, 24);\n    results.push({\n      json: {\n        ats_record_index: index,\n        record_type: 'DIRECT',\n        candidate_id: `ATSEXPORT-${safeStem}-${Date.now()}-${index}`,\n        candidate_name: s(record.candidate_name),\n        contact_email: s(record.contact_email),\n        total_years_experience: s(record.total_years_experience),\n        key_skills: s(record.key_skills),\n        most_recent_title: s(record.most_recent_title),\n        most_recent_employer: s(record.most_recent_employer),\n        years_in_role: s(record.years_in_role),\n        education: s(record.education),\n        certifications: s(record.certifications),\n        portfolio_url: s(record.portfolio_url),\n        resume_content_hash: hash,\n        resume_content_hash_algorithm_version: 'v1.0',\n        resume_shingle_fingerprint: computeShingleFingerprint(canonical),\n        resume_shingle_fingerprint_version: 'CANDOR near-dup shingle-fingerprint v0.1',\n        tenant_id: 'default-tenant',\n        intake_source: 'ats_export',\n        ats_candidate_id_submitted: record.ats_candidate_id ?? null\n      }\n    });\n  } catch (recordError) {\n    results.push({ json: { ats_record_index: index, record_type: 'MALFORMED', rejection_reason: `unexpected error while processing this record: ${recordError.message}` } });\n  }\n});\n\nreturn results;\n"
+      }
+    },
+    {
+      "id": "6c5933f4-6690-4b5c-b096-e068703dcc88",
+      "name": "RouteByATSNeedsExtraction",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        620,
+        1000
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "ats-needext-1",
+              "leftValue": "={{ $json.record_type }}",
+              "rightValue": "NEEDS_EXTRACTION",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "7c338f79-a75a-4adb-bbf0-6dfc935250c1",
+      "name": "RouteByATSDirect",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        860,
+        1080
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "ats-direct-1",
+              "leftValue": "={{ $json.record_type }}",
+              "rightValue": "DIRECT",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "94e18e26-4413-4697-ba04-16972a79fa6c",
+      "name": "RouteByATSInBatchDuplicate",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1100,
+        1160
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "leftValue": "",
+            "caseSensitive": true,
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "ats-inbatch-1",
+              "leftValue": "={{ $json.record_type }}",
+              "rightValue": "IN_BATCH_DUPLICATE",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "4578375f-8f85-450a-b424-057af278a0d6",
+      "name": "SkippedATSInBatchDuplicateRecord",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1340,
+        1120
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "3c5b16d2-a3b4-45d1-b648-642f1485a0ac",
+      "name": "RejectedATSRecord",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        1340,
+        1220
+      ],
+      "parameters": {}
+    },
+    {
+      "id": "3164d4ae-750b-436c-b0cf-8ff5cfd45918",
+      "name": "CallCANDOR01ForATSExport",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        860,
+        900
+      ],
+      "parameters": {
+        "source": "database",
+        "mode": "each",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "f2WXrhjZrJPINZQV"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {}
+        },
+        "options": {}
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "f740ab40-c994-429f-b014-899e2e2dc76c",
+      "name": "BuildATSDirectCandidateRecord",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        1000
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "mode": "runOnceForAllItems",
+        "jsCode": "const INJECTION_PATTERNS = [\n  { label: 'ignore_prior_instructions', re: /ignore\\s+(all\\s+)?(the\\s+)?(previous|prior|above|earlier)\\s+instructions?/i },\n  { label: 'disregard_prior_instructions', re: /disregard\\s+(all\\s+)?(the\\s+)?(previous|prior|above|earlier)\\s+instructions?/i },\n  { label: 'new_instructions_marker', re: /\\bnew\\s+instructions?\\s*[:.]/i },\n  { label: 'you_are_now', re: /\\byou\\s+are\\s+now\\s+(a|an|the)\\b/i },\n  { label: 'system_prompt_reference', re: /\\bsystem\\s+prompt\\b/i },\n  { label: 'rate_all_skills_as_expert', re: /rate\\s+(all|every|each)\\s+skills?\\s+as\\s+(expert|10\\s*\\/\\s*10|maximum|top)/i },\n  { label: 'act_as_persona', re: /\\bact\\s+as\\s+(a|an)\\s+/i },\n  { label: 'do_not_follow_rules_above', re: /do\\s+not\\s+(follow|apply)\\s+the\\s+(rules|instructions)\\s+above/i },\n  { label: 'assistant_role_injection', re: /\\b(assistant|ai)\\s*:\\s*(ignore|okay|sure|understood)/i }\n];\n\nfunction detectInjection(text) {\n  const t = (text || '').toString();\n  const matched = INJECTION_PATTERNS.filter(p => p.re.test(t)).map(p => p.label);\n  return { suspected: matched.length > 0, matched };\n}\n\nconst item = $input.first().json;\n\nfunction s(v) {\n  return typeof v === 'string' ? v.trim() : '';\n}\n\nconst candidateName = s(item.candidate_name);\nconst contactEmail = s(item.contact_email);\nconst totalYearsExperienceText = s(item.total_years_experience);\nconst keySkillsText = s(item.key_skills);\nconst mostRecentTitle = s(item.most_recent_title);\nconst mostRecentEmployer = s(item.most_recent_employer);\nconst yearsInRole = s(item.years_in_role);\nconst education = s(item.education);\nconst certifications = s(item.certifications);\nconst portfolioUrl = s(item.portfolio_url);\n\nfunction directField(fieldName, rawValue, displayValue) {\n  const value = displayValue !== undefined ? displayValue : rawValue;\n  if (!rawValue) {\n    return { field: fieldName, value: 'insufficient information', source_quote: '', evidence_verified: false, reason: 'field not provided on the ATS export record' };\n  }\n  const quote = Array.isArray(value) ? value.join(', ') : String(value);\n  return { field: fieldName, value, source_quote: quote, evidence_verified: true, reason: 'directly submitted via the CANDOR-02 ATS-export adapter (structured record, no resume text) - no extraction step, so no hallucination risk to check for' };\n}\n\nfunction yearsSourceQuote(yearsText, skillsText) {\n  const parts = [`${yearsText} years of experience`];\n  if (skillsText) parts.push(`with skills including ${skillsText}`);\n  return parts.join(' ');\n}\n\nconst keySkillsArray = keySkillsText\n  ? keySkillsText.split(',').map(sVal => sVal.trim()).filter(Boolean)\n  : [];\n\nconst fields = [\n  directField('candidate_name', candidateName),\n  directField('contact_email', contactEmail),\n  (totalYearsExperienceText\n    ? { field: 'total_years_experience_claimed', value: totalYearsExperienceText, source_quote: yearsSourceQuote(totalYearsExperienceText, keySkillsText), evidence_verified: true, reason: 'directly submitted via the CANDOR-02 ATS-export adapter - source_quote synthesized from this same record\\'s own key_skills field (an already-permitted field, never an excluded one) so CalculateMatchScore\\'s domain-relevance gate has real vocabulary to check, not just a bare number' }\n    : { field: 'total_years_experience_claimed', value: 'insufficient information', source_quote: '', evidence_verified: false, reason: 'field not provided on the ATS export record' }),\n  directField('most_recent_title', mostRecentTitle),\n  directField('most_recent_employer', mostRecentEmployer),\n  directField('key_skills', keySkillsText, keySkillsArray),\n  directField('education', education),\n  directField('certifications', certifications)\n];\n\nconst verifiedCount = fields.filter(f => f.evidence_verified).length;\n\nlet employmentHistory = [];\nif (mostRecentTitle || mostRecentEmployer || yearsInRole) {\n  const durationText = /^\\d+(\\.\\d+)?$/.test(yearsInRole) ? `${yearsInRole} years` : (yearsInRole || 'insufficient information');\n  const hasDuration = durationText !== 'insufficient information';\n  employmentHistory = [{\n    field: 'employment_history[0]',\n    title: mostRecentTitle || 'insufficient information',\n    employer: mostRecentEmployer || 'insufficient information',\n    duration_text: durationText,\n    source_quote: hasDuration ? durationText : '',\n    evidence_verified: hasDuration,\n    title_verified: !!mostRecentTitle,\n    employer_verified: !!mostRecentEmployer,\n    reason: hasDuration\n      ? 'directly submitted via the CANDOR-02 ATS-export adapter - no extraction step, so no hallucination risk to check for'\n      : 'years in this role not provided on the ATS export record'\n  }];\n}\n\nconst portfolioOrWorkSample = directField('portfolio_or_work_sample', portfolioUrl);\n\nconst injectionCheck = detectInjection([candidateName, contactEmail, mostRecentTitle, mostRecentEmployer, keySkillsText, education, certifications, portfolioUrl].join(' \\n '));\n\nreturn [{\n  json: {\n    candidate_id: item.candidate_id,\n    resume_filename: 'ATS_EXPORT_RECORD',\n    intake_source: 'ats_export',\n    ats_candidate_id_submitted: item.ats_candidate_id_submitted ?? null,\n    extraction_status: 'PARSED_OK',\n    resume_content_hash: item.resume_content_hash,\n    resume_content_hash_algorithm_version: item.resume_content_hash_algorithm_version,\n    resume_shingle_fingerprint: item.resume_shingle_fingerprint,\n    resume_shingle_fingerprint_version: item.resume_shingle_fingerprint_version,\n    tenant_id: item.tenant_id,\n    processed_at: new Date().toISOString(),\n    model_used: 'direct_ats_export_entry (no Anthropic call on this path - structured record, no resume text)',\n    prompt_injection_suspected: injectionCheck.suspected,\n    prompt_injection_matched_patterns: injectionCheck.matched,\n    prompt_injection_check_version: 'CANDOR prompt-injection pattern-flag v0.1',\n    fields,\n    quantified_accomplishments: [],\n    notable_unquantified_claims: [],\n    employment_history: employmentHistory,\n    portfolio_or_work_sample: portfolioOrWorkSample,\n    verification_summary: {\n      total_items_checked: fields.length,\n      evidence_verified_count: verifiedCount,\n      not_verified_count: fields.length - verifiedCount\n    }\n  }\n}];\n"
+      }
+    },
+    {
+      "id": "da6f1509-c720-4e41-bf85-9e24c8b178d4",
+      "name": "CallCANDOR04ForATSExport",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1340,
+        1000
+      ],
+      "parameters": {
+        "source": "database",
+        "mode": "each",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "sqYbHtxZPyWRgAjo"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {}
+        },
+        "options": {}
+      },
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "CheckFileBasics": {
+      "main": [
+        [
+          {
+            "node": "RouteByIntakeValidity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RouteByIntakeValidity": {
+      "main": [
+        [
+          {
+            "node": "RouteByFileType",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "RejectedIntake",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RouteByFileType": {
+      "main": [
+        [
+          {
+            "node": "ExtractFromPDF",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "ExtractFromTextFile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ExtractFromPDF": {
+      "main": [
+        [
+          {
+            "node": "NormalizeText",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ExtractFromTextFile": {
+      "main": [
+        [
+          {
+            "node": "NormalizeText",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NormalizeText": {
+      "main": [
+        [
+          {
+            "node": "ComputeResumeContentHash",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ComputeResumeContentHash": {
+      "main": [
+        [
+          {
+            "node": "CallCANDOR01",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FormTriggerResumeUpload": {
+      "main": [
+        [
+          {
+            "node": "CheckSecureConfigOverride",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CheckSecureConfigOverride": {
+      "main": [
+        [
+          {
+            "node": "CheckFileBasics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FormTriggerApplicationSubmission": {
+      "main": [
+        [
+          {
+            "node": "CheckSecureConfigOverrideApplicationForm",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CheckSecureConfigOverrideApplicationForm": {
+      "main": [
+        [
+          {
+            "node": "CheckApplicationFormBasics",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CheckApplicationFormBasics": {
+      "main": [
+        [
+          {
+            "node": "RouteByApplicationFormValidity",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RouteByApplicationFormValidity": {
+      "main": [
+        [
+          {
+            "node": "BuildApplicationCandidateRecord",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "RejectedApplicationIntake",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BuildApplicationCandidateRecord": {
+      "main": [
+        [
+          {
+            "node": "CallCANDOR04FromApplicationForm",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FormTriggerATSExport": {
+      "main": [
+        [
+          {
+            "node": "CheckSecureConfigOverrideATSExport",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CheckSecureConfigOverrideATSExport": {
+      "main": [
+        [
+          {
+            "node": "ExtractATSExportFileText",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ExtractATSExportFileText": {
+      "main": [
+        [
+          {
+            "node": "ParseAndClassifyATSExportBatch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ParseAndClassifyATSExportBatch": {
+      "main": [
+        [
+          {
+            "node": "RouteByATSNeedsExtraction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RouteByATSNeedsExtraction": {
+      "main": [
+        [
+          {
+            "node": "CallCANDOR01ForATSExport",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "RouteByATSDirect",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RouteByATSDirect": {
+      "main": [
+        [
+          {
+            "node": "BuildATSDirectCandidateRecord",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "RouteByATSInBatchDuplicate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RouteByATSInBatchDuplicate": {
+      "main": [
+        [
+          {
+            "node": "SkippedATSInBatchDuplicateRecord",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "RejectedATSRecord",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BuildATSDirectCandidateRecord": {
+      "main": [
+        [
+          {
+            "node": "CallCANDOR04ForATSExport",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": true
+  },
+  "staticData": null,
+  "tags": [],
+  "activeVersion": {
+    "versionId": "eadc2154-bbbf-4ade-a9df-ab330deb1e26",
+    "workflowId": "JfP3IpSLcUJ1yOcC",
+    "nodes": [
+      {
+        "id": "form-trigger",
+        "name": "FormTriggerResumeUpload",
+        "type": "n8n-nodes-base.formTrigger",
+        "typeVersion": 2.6,
+        "position": [
+          -100,
+          300
+        ],
+        "parameters": {
+          "formTitle": "CANDOR - Resume Upload (Test)",
+          "formDescription": "Synthetic test intake form for CANDOR-02. Upload a .txt or .pdf resume.",
+          "path": "candor02-resume-upload",
+          "formFields": {
+            "values": [
+              {
+                "fieldLabel": "Resume File",
+                "fieldType": "file",
+                "fieldName": "resume_file",
+                "requiredField": true,
+                "multipleFiles": false,
+                "acceptFileTypes": ".txt,.pdf"
+              },
+              {
+                "fieldLabel": "Candidate Reference",
+                "fieldType": "text",
+                "fieldName": "candidate_reference",
+                "requiredField": false
+              }
+            ]
+          },
+          "options": {},
+          "authentication": "basicAuth"
+        },
+        "webhookId": "2f2d4e67-5fea-4942-8fd4-ea51f78cb2af",
+        "credentials": {
+          "httpBasicAuth": {
+            "note": "credential reference redacted for public release - see private repo"
+          }
+        }
+      },
+      {
+        "id": "check-file-basics",
+        "name": "CheckFileBasics",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          140,
+          300
+        ],
+        "parameters": {
+          "language": "javaScript",
+          "mode": "runOnceForAllItems",
+          "jsCode": "const item = $input.first();\nconst binary = item.binary ? item.binary['resume_file'] : undefined;\n\n// candidate_reference is carried through best-effort only and never\n// depended on - candidate_id is generated deterministically below\n// instead, since a candidate shouldn't be trusted to self-report their\n// own system identifier anyway. (Root-cause note: an earlier round of\n// manual curl testing saw this field arrive as null and initially\n// mis-diagnosed it as an n8n platform limitation. The actual cause was\n// the test harness itself - n8n's rendered form submits multipart field\n// names positionally (field-0, field-1, ...) rather than the human\n// -readable fieldName configured below, and curl was sending the\n// configured name directly. A real submission through n8n's own\n// rendered form works correctly regardless of field order, since the\n// browser and this workflow's backend both derive field-N from the same\n// live form configuration. See CANDOR-02-Build-Log.md for the full\n// investigation.)\nconst candidateReference = (item.json && item.json.candidate_reference) || null;\n\nfunction rejected(reason) {\n  return [{\n    json: {\n      candidate_id: null,\n      resume_filename: binary ? binary.fileName : null,\n      candidate_reference_submitted: candidateReference,\n      intake_status: 'REJECTED',\n      rejection_reason: reason\n    }\n  }];\n}\n\nif (!binary) {\n  return rejected('no file was submitted in the resume_file field');\n}\n\nconst fileName = binary.fileName || 'unknown';\nconst extension = (binary.fileExtension || '').toLowerCase();\nconst allowedExtensions = ['txt', 'pdf'];\n\nif (!allowedExtensions.includes(extension)) {\n  return rejected(`unsupported file type \".${extension || 'unknown'}\" - only .txt and .pdf resumes are accepted`);\n}\n\nconst byteCount = typeof binary.bytes === 'number' ? binary.bytes : null;\nif (byteCount === null) {\n  return rejected('could not determine the uploaded file size');\n}\nif (byteCount === 0) {\n  return rejected('the uploaded file is empty (0 bytes)');\n}\n\n// Deterministic candidate_id derived from the filename plus the exact\n// millisecond the submission was received - does not depend on a field\n// the candidate might leave blank, or that this platform version\n// currently fails to capture alongside a file upload (see note above).\nconst safeStem = fileName.replace(/\\.[^.]+$/, '').replace(/[^a-zA-Z0-9]+/g, '-').toUpperCase().slice(0, 24);\nconst candidateId = `INTAKE-${safeStem}-${Date.now()}`;\n\nreturn [{\n  json: {\n    candidate_id: candidateId,\n    resume_filename: fileName,\n    file_extension: extension,\n    file_size_bytes: byteCount,\n    candidate_reference_submitted: candidateReference,\n    intake_status: 'VALID'\n  },\n  binary: item.binary\n}];\n"
+        }
+      },
+      {
+        "id": "route-by-validity",
+        "name": "RouteByIntakeValidity",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          380,
+          300
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "version": 2,
+              "leftValue": "",
+              "caseSensitive": true,
+              "typeValidation": "strict"
+            },
+            "conditions": [
+              {
+                "id": "validity1",
+                "leftValue": "={{ $json.intake_status }}",
+                "rightValue": "VALID",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          }
+        }
+      },
+      {
+        "id": "rejected-intake",
+        "name": "RejectedIntake",
+        "type": "n8n-nodes-base.noOp",
+        "typeVersion": 1,
+        "position": [
+          620,
+          460
+        ],
+        "parameters": {}
+      },
+      {
+        "id": "route-by-filetype",
+        "name": "RouteByFileType",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          620,
+          180
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "version": 2,
+              "leftValue": "",
+              "caseSensitive": true,
+              "typeValidation": "strict"
+            },
+            "conditions": [
+              {
+                "id": "filetype1",
+                "leftValue": "={{ $json.file_extension }}",
+                "rightValue": "pdf",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          }
+        }
+      },
+      {
+        "id": "extract-pdf",
+        "name": "ExtractFromPDF",
+        "type": "n8n-nodes-base.extractFromFile",
+        "typeVersion": 1.1,
+        "position": [
+          860,
+          80
+        ],
+        "parameters": {
+          "operation": "pdf",
+          "binaryPropertyName": "resume_file",
+          "options": {}
+        }
+      },
+      {
+        "id": "extract-text",
+        "name": "ExtractFromTextFile",
+        "type": "n8n-nodes-base.extractFromFile",
+        "typeVersion": 1.1,
+        "position": [
+          860,
+          280
+        ],
+        "parameters": {
+          "operation": "text",
+          "binaryPropertyName": "resume_file",
+          "destinationKey": "text",
+          "options": {}
+        }
+      },
+      {
+        "id": "normalize-text",
+        "name": "NormalizeText",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1100,
+          180
+        ],
+        "parameters": {
+          "language": "javaScript",
+          "mode": "runOnceForAllItems",
+          "jsCode": "const extracted = $input.first().json;\nconst intake = $('CheckFileBasics').first().json;\nconst rawText = typeof extracted.text === 'string' ? extracted.text : '';\n\n// --- Step 1: repair 'UTF-8 bytes shown as Windows-1252' mojibake ---\n// This is the exact corruption pattern that broke CANDOR-01's\n// synthetic-resume-03.txt test (see CANDOR-01-Build-Log.md Results, Run 3).\n//\n// Approach: UTF-8 multi-byte sequences that get mis-decoded one byte at a\n// time as Windows-1252 always start with a small, fixed set of lead\n// characters - \"Ã\" (from a 2-byte C3 xx sequence: Latin-1 Supplement\n// letters like é/è/ó), \"Â\" (from a 2-byte C2 xx sequence: C1\n// controls/Latin-1 punctuation, most commonly a non-breaking space), and\n// \"â€\" or \"â–\" (from a 3-byte E2 80/96 xx sequence: General\n// Punctuation - curly quotes, dashes, bullet, ellipsis - or Block\n// Elements). Each is repaired by reversing exactly that one corrupted\n// character back to its original cp1252 BYTE value and reconstructing the\n// true Unicode code point via the same UTF-8 bit math, using ONLY the one\n// character immediately following the diagnostic prefix. This only fires\n// on these specific, essentially never-coincidental 1-2 character prefix\n// sequences, so it cannot corrupt a standalone genuine em dash, curly\n// quote, or accented letter elsewhere in the text - unlike an earlier\n// whole-string approach (reverting the entire text through one byte\n// buffer) which was found, via real testing, to corrupt genuinely correct\n// em dashes that happened to share a byte-derived code point with actual\n// mojibake elsewhere in the same document.\n//\n// Known, accepted limitation: a small number of cp1252 byte values are\n// themselves undefined (e.g. the byte behind a closing curly quote) and\n// render as nothing when mis-decoded, so that specific character is\n// consumed by nothing 'visible' - the diagnostic prefix is then left\n// exactly as-is rather than guessing (a genuine mojibake continuation\n// byte is never literal whitespace in practice, so whitespace right\n// after the prefix is treated as \"not a continuation - leave it alone\"\n// rather than eaten and replaced with a wrong character). This trades a\n// small amount of missed repair for zero risk of silently merging two\n// words together or inventing a wrong symbol.\nfunction buildReverseCp1252Map() {\n  const highMap = {\n    0x80: 0x20AC, 0x82: 0x201A, 0x83: 0x0192, 0x84: 0x201E, 0x85: 0x2026,\n    0x86: 0x2020, 0x87: 0x2021, 0x88: 0x02C6, 0x89: 0x2030, 0x8A: 0x0160,\n    0x8B: 0x2039, 0x8C: 0x0152, 0x8E: 0x017D, 0x91: 0x2018, 0x92: 0x2019,\n    0x93: 0x201C, 0x94: 0x201D, 0x95: 0x2022, 0x96: 0x2013, 0x97: 0x2014,\n    0x98: 0x02DC, 0x99: 0x2122, 0x9A: 0x0161, 0x9B: 0x203A, 0x9C: 0x0153,\n    0x9E: 0x017E, 0x9F: 0x0178\n  };\n  const reverseMap = {};\n  for (let b = 0; b <= 0xFF; b++) {\n    const cp = highMap[b] !== undefined ? highMap[b] : b;\n    reverseMap[cp] = b;\n  }\n  return reverseMap;\n}\n\nfunction repairMojibake(text) {\n  if (!text) return { text, repaired: false, repairedCount: 0 };\n  const reverseMap = buildReverseCp1252Map();\n  let repairedCount = 0;\n\n  function fix(base, nextChar) {\n    if (/\\s/.test(nextChar)) return null;\n    const b = reverseMap[nextChar.codePointAt(0)];\n    if (b === undefined) return null;\n    return String.fromCodePoint(base | (b & 0x3F));\n  }\n\n  let result = text;\n  const prefixRules = [['â€', 0x2000], ['â–', 0x2580], ['Ã', 0x00C0], ['Â', 0x0080]];\n  for (const [prefix, base] of prefixRules) {\n    const re = new RegExp(prefix + '(.)', 'gu');\n    result = result.replace(re, (m, c) => {\n      const fixed = fix(base, c);\n      if (fixed !== null) { repairedCount++; return fixed; }\n      return m;\n    });\n  }\n\n  return { text: result, repaired: repairedCount > 0, repairedCount };\n}\n\n// --- Step 2: strip stray replacement characters (genuinely lost data,\n// not repairable - e.g. from invalid byte sequences that can't round-trip\n// back to anything meaningful) ---\nfunction stripReplacementChars(text) {\n  const count = (text.match(/�/g) || []).length;\n  return { text: text.replace(/�/g, ''), count };\n}\n\n// --- Step 3: whitespace normalization ---\nfunction normalizeWhitespace(text) {\n  return text\n    .replace(/ /g, ' ')\n    .replace(/\\r\\n?/g, '\\n')\n    .split('\\n')\n    .map(line => line.replace(/[ \\t]+/g, ' ').trimEnd())\n    .join('\\n')\n    .replace(/\\n{3,}/g, '\\n\\n')\n    .trim();\n}\n\nconst step1 = repairMojibake(rawText);\nconst step2 = stripReplacementChars(step1.text);\nconst finalText = normalizeWhitespace(step2.text);\n\nreturn [{\n  json: {\n    candidate_id: intake.candidate_id,\n    resume_filename: intake.resume_filename,\n    file_extension: intake.file_extension,\n    file_size_bytes: intake.file_size_bytes,\n    resume_text: finalText,\n    intake_status: 'OK',\n    normalization_notes: {\n      mojibake_repair_applied: step1.repaired,\n      mojibake_repairs_count: step1.repairedCount,\n      replacement_chars_stripped: step2.count\n    }\n  }\n}];\n"
+        }
+      },
+      {
+        "id": "call-candor01",
+        "name": "CallCANDOR01",
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1.3,
+        "position": [
+          1340,
+          180
+        ],
+        "parameters": {
+          "source": "database",
+          "workflowId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "f2WXrhjZrJPINZQV"
+          },
+          "workflowInputs": {
+            "mappingMode": "defineBelow",
+            "value": {}
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "compute-resume-content-hash",
+        "name": "ComputeResumeContentHash",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1100,
+          340
+        ],
+        "parameters": {
+          "language": "javaScript",
+          "mode": "runOnceForAllItems",
+          "jsCode": "// === CANDOR-08 deduplication support (System Review item 27) ===\n// Computes a canonical content hash of the already-normalized resume\n// text, so CANDOR-08 can later detect \"the same resume submitted again\"\n// independent of filename, candidate_id (always freshly minted), or\n// trivial re-encoding/whitespace differences.\n//\n// Canonicalization is applied ON TOP of NormalizeText's own mojibake\n// repair + whitespace normalization - a second, narrower pass\n// specifically for hash stability (Unicode normalization form, line\n// -ending normalization, blank-line collapsing, outer trim).\n//\n// IMPORTANT (spread, not reconstruct): this node spreads the incoming\n// item (`...item`) rather than listing fields by hand - NormalizeText's\n// own hand-written return object is exactly what silently dropped\n// candidate_reference_submitted previously. Spreading here means every\n// existing field survives automatically; only the two new hash fields\n// are added explicitly.\n//\n// Pure-JS SHA-256, not crypto/crypto.subtle: this n8n instance runs Code\n// nodes through @n8n/task-runner's JsTaskRunner, a separate sandboxed\n// vm.createContext() - confirmed by reading js-task-runner.js directly\n// that it exposes NO built-in `require()` modules (empty allowedBuiltInModules,\n// no relevant env var set) and does NOT inject a `crypto` global either\n// (getNativeVariables() only provides Buffer/TextEncoder/TextDecoder/\n// FormData/timers - no crypto). Confirmed empirically too: an earlier\n// version of this node using `crypto.subtle.digest(...)` failed at\n// runtime with \"crypto is not defined\" (execution 537). The FIPS 180-4\n// implementation below was verified against openssl independently\n// (SHA256('') and SHA256('abc')) before being used here.\n\nfunction sha256Hex(bytes) {\n  const K = [\n    0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,\n    0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,\n    0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,\n    0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,\n    0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,\n    0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,\n    0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,\n    0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2\n  ];\n  let H = [0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];\n  const bitLen = bytes.length * 8;\n  let paddedLength = bytes.length + 1;\n  while (paddedLength % 64 !== 56) paddedLength++;\n  paddedLength += 8;\n  const padded = new Uint8Array(paddedLength);\n  padded.set(bytes);\n  padded[bytes.length] = 0x80;\n  const highLen = Math.floor(bitLen / 0x100000000);\n  const lowLen = bitLen >>> 0;\n  const dv = new DataView(padded.buffer);\n  dv.setUint32(paddedLength - 8, highLen, false);\n  dv.setUint32(paddedLength - 4, lowLen, false);\n  const rotr = (x, n) => (x >>> n) | (x << (32 - n));\n  for (let chunkStart = 0; chunkStart < paddedLength; chunkStart += 64) {\n    const w = new Uint32Array(64);\n    for (let i = 0; i < 16; i++) w[i] = dv.getUint32(chunkStart + i * 4, false);\n    for (let i = 16; i < 64; i++) {\n      const s0 = rotr(w[i-15], 7) ^ rotr(w[i-15], 18) ^ (w[i-15] >>> 3);\n      const s1 = rotr(w[i-2], 17) ^ rotr(w[i-2], 19) ^ (w[i-2] >>> 10);\n      w[i] = (w[i-16] + s0 + w[i-7] + s1) >>> 0;\n    }\n    let [a,b,c,d,e,f,g,h] = H;\n    for (let i = 0; i < 64; i++) {\n      const S1 = rotr(e,6) ^ rotr(e,11) ^ rotr(e,25);\n      const ch = (e & f) ^ (~e & g);\n      const temp1 = (h + S1 + ch + K[i] + w[i]) >>> 0;\n      const S0 = rotr(a,2) ^ rotr(a,13) ^ rotr(a,22);\n      const maj = (a & b) ^ (a & c) ^ (b & c);\n      const temp2 = (S0 + maj) >>> 0;\n      h = g; g = f; f = e; e = (d + temp1) >>> 0;\n      d = c; c = b; b = a; a = (temp1 + temp2) >>> 0;\n    }\n    H[0]=(H[0]+a)>>>0; H[1]=(H[1]+b)>>>0; H[2]=(H[2]+c)>>>0; H[3]=(H[3]+d)>>>0;\n    H[4]=(H[4]+e)>>>0; H[5]=(H[5]+f)>>>0; H[6]=(H[6]+g)>>>0; H[7]=(H[7]+h)>>>0;\n  }\n  return H.map(x => x.toString(16).padStart(8,'0')).join('');\n}\n\nconst item = $input.first().json;\nconst rawText = typeof item.resume_text === 'string' ? item.resume_text : '';\n\nconst canonical = rawText\n  .normalize('NFC')\n  .replace(/\\r\\n?/g, '\\n')\n  .replace(/\\n{3,}/g, '\\n\\n')\n  .trim();\n\nconst hashHex = sha256Hex(new TextEncoder().encode(canonical));\n\n// === Phase 4a (docs/CANDOR-Hardening-Roadmap-DRAFT.md): near-duplicate\n// fingerprint, layered on top of the exact-hash dedup above ===\n// A candidate resubmitting a lightly-reformatted resume (different\n// whitespace, a reordered sentence, a synonym swap) produces a\n// DIFFERENT resume_content_hash - the exact-match dedup above correctly\n// does not catch it (by design - it's not byte-identical). This\n// fingerprint is a deliberately simple, bounded, transparent v0.1\n// heuristic for THAT case: a \"bottom-k\" sketch of 5-word-shingle hashes\n// (a well-known family of near-duplicate detection techniques - not a\n// rigorous unbiased MinHash estimator, since that requires comparing\n// against the bottom-k of the UNION of two sets, not the two sets'\n// bottom-k lists directly; this is a simpler, self-admittedly\n// approximate overlap-fraction metric, same \"simple, transparent,\n// deliberately not exhaustive\" discipline as VerifyClaimsAgainstSource's\n// own digit-check heuristic). Persists only 20 short hash strings, not\n// the shingles or any reconstructable text - privacy-conscious the same\n// way Phase 1b's PII-hash redesign was.\nfunction computeShingleFingerprint(text) {\n  const words = text.toLowerCase().replace(/[^a-z0-9\\s]/g, ' ').split(/\\s+/).filter(Boolean);\n  const SHINGLE_SIZE = 5;\n  const MIN_HASH_COUNT = 20;\n  if (words.length < SHINGLE_SIZE) {\n    return [sha256Hex(new TextEncoder().encode(words.join(' ')))];\n  }\n  const shingleHashes = new Set();\n  for (let i = 0; i <= words.length - SHINGLE_SIZE; i++) {\n    const shingle = words.slice(i, i + SHINGLE_SIZE).join(' ');\n    shingleHashes.add(sha256Hex(new TextEncoder().encode(shingle)));\n  }\n  return Array.from(shingleHashes).sort().slice(0, MIN_HASH_COUNT);\n}\n\nconst shingleFingerprint = computeShingleFingerprint(canonical);\n\n// === Phase 6d (docs/CANDOR-Hardening-Roadmap-DRAFT.md): multi-tenant\n// scaffolding ===\n// A cheap, forward-compatible field added now so a real second tenant\n// can be onboarded later without a schema change - not a real\n// multi-tenant SYSTEM (there is no tenant registry, no per-tenant\n// config, no tenant-scoped credentials). This n8n instance serves\n// exactly one tenant today, so the value is a single constant - real\n// isolation cannot be verified with only one tenant to test against\n// (there is nothing to prove data DOESN'T cross a boundary that has\n// never had a second side). Logged as blocked on that precondition in\n// docs/CANDOR-Hardening-Build-Log.md Phase 6d, not faked as tested.\nconst TENANT_ID = 'default-tenant';\n\nreturn [{\n  json: {\n    ...item,\n    resume_content_hash: hashHex,\n    resume_content_hash_algorithm_version: 'v1.0',\n    resume_shingle_fingerprint: shingleFingerprint,\n    resume_shingle_fingerprint_version: 'CANDOR near-dup shingle-fingerprint v0.1',\n    tenant_id: TENANT_ID\n  }\n}];\n"
+        }
+      },
+      {
+        "id": "check-secure-config-override",
+        "name": "CheckSecureConfigOverride",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          20,
+          300
+        ],
+        "parameters": {
+          "language": "javaScript",
+          "mode": "runOnceForAllItems",
+          "jsCode": "// 2026-09-18 (System Review item 12, real-auth half): FormTriggerResumeUpload\n// now has Basic Auth configured for real (credential \"CANDOR-02 Intake Form\n// Basic Auth\", n8n httpBasicAuth) - verified both directions on the real live\n// form (see CANDOR-02-Build-Log.md): an unauthenticated request now gets a\n// real 401 from n8n itself, before this workflow even starts; a correctly\n// authenticated request still reaches this node and the rest of the real\n// pipeline unchanged. This flag now reflects that real, confirmed state -\n// not asserted in passing, checked against the live instance.\nconst AUTH_CONFIRMED_ENABLED = true;\nconst SYNTHETIC_DATA_ONLY_OVERRIDE = true; // still true independently: this instance still only ever handles synthetic test fixtures, per Master Instructions §14 - kept true so a real-candidate submission is never silently treated as acceptable just because auth is present.\n\nif (!AUTH_CONFIRMED_ENABLED && !SYNTHETIC_DATA_ONLY_OVERRIDE) {\n  throw new Error(\n    'CANDOR-02 CheckSecureConfigOverride: refusing to accept this submission. ' +\n    'FormTriggerResumeUpload has no confirmed authentication configured, and ' +\n    'SYNTHETIC_DATA_ONLY_OVERRIDE is not set. Per CANDOR Master Instructions ' +\n    'Section 14, enable authentication on the form trigger before accepting ' +\n    'real candidate data, or explicitly set SYNTHETIC_DATA_ONLY_OVERRIDE = true ' +\n    'in this node if this is genuinely synthetic test data only.'\n  );\n}\n\nconst items = $input.all();\nreturn items.map(item => ({\n  json: {\n    ...item.json,\n    secure_config_auth_confirmed_enabled: AUTH_CONFIRMED_ENABLED,\n    secure_config_synthetic_data_only_override_active: !AUTH_CONFIRMED_ENABLED && SYNTHETIC_DATA_ONLY_OVERRIDE,\n    secure_config_check_version: 'CANDOR secure-config fail-fast v0.1'\n  },\n  binary: item.binary\n}));\n"
+        }
+      },
+      {
+        "id": "2aa3c142-5db8-4495-8b3f-ed064c054173",
+        "name": "FormTriggerApplicationSubmission",
+        "type": "n8n-nodes-base.formTrigger",
+        "typeVersion": 2.6,
+        "position": [
+          -100,
+          700
+        ],
+        "parameters": {
+          "formTitle": "CANDOR - Application Form (Test)",
+          "formDescription": "Synthetic test intake form for CANDOR-02's second source adapter: direct application-form submission (no resume file). Fields marked required are the minimum needed to compute a Match Score.",
+          "path": "candor02-application-form",
+          "formFields": {
+            "values": [
+              {
+                "fieldLabel": "Candidate Name",
+                "fieldType": "text",
+                "fieldName": "candidate_name",
+                "requiredField": true
+              },
+              {
+                "fieldLabel": "Contact Email",
+                "fieldType": "text",
+                "fieldName": "contact_email",
+                "requiredField": true
+              },
+              {
+                "fieldLabel": "Total Years of Experience",
+                "fieldType": "text",
+                "fieldName": "total_years_experience",
+                "requiredField": true
+              },
+              {
+                "fieldLabel": "Key Skills (comma-separated)",
+                "fieldType": "text",
+                "fieldName": "key_skills",
+                "requiredField": true
+              },
+              {
+                "fieldLabel": "Most Recent / Most Relevant Job Title",
+                "fieldType": "text",
+                "fieldName": "most_recent_title",
+                "requiredField": false
+              },
+              {
+                "fieldLabel": "Most Recent / Most Relevant Employer",
+                "fieldType": "text",
+                "fieldName": "most_recent_employer",
+                "requiredField": false
+              },
+              {
+                "fieldLabel": "Years in That Role",
+                "fieldType": "text",
+                "fieldName": "years_in_role",
+                "requiredField": false
+              },
+              {
+                "fieldLabel": "Education",
+                "fieldType": "text",
+                "fieldName": "education",
+                "requiredField": false
+              },
+              {
+                "fieldLabel": "Certifications",
+                "fieldType": "text",
+                "fieldName": "certifications",
+                "requiredField": false
+              },
+              {
+                "fieldLabel": "Portfolio or Work Sample URL",
+                "fieldType": "text",
+                "fieldName": "portfolio_url",
+                "requiredField": false
+              },
+              {
+                "fieldLabel": "Candidate Reference",
+                "fieldType": "text",
+                "fieldName": "candidate_reference",
+                "requiredField": false
+              }
+            ]
+          },
+          "options": {},
+          "authentication": "basicAuth"
+        },
+        "credentials": {
+          "httpBasicAuth": {
+            "note": "credential reference redacted for public release - see private repo"
+          }
+        },
+        "webhookId": "88ec95b6-d894-4285-ae38-180ff8c15ff0"
+      },
+      {
+        "id": "8e479e87-b6fe-49a7-950e-686489fbbf32",
+        "name": "CheckSecureConfigOverrideApplicationForm",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          20,
+          700
+        ],
+        "parameters": {
+          "language": "javaScript",
+          "mode": "runOnceForAllItems",
+          "jsCode": "const AUTH_CONFIRMED_ENABLED = true;\nconst SYNTHETIC_DATA_ONLY_OVERRIDE = true;\n\nif (!AUTH_CONFIRMED_ENABLED && !SYNTHETIC_DATA_ONLY_OVERRIDE) {\n  throw new Error(\n    'CANDOR-02 CheckSecureConfigOverrideApplicationForm: refusing to accept this submission. ' +\n    'FormTriggerApplicationSubmission has no confirmed authentication configured, and ' +\n    'SYNTHETIC_DATA_ONLY_OVERRIDE is not set. Per CANDOR Master Instructions ' +\n    'Section 14, enable authentication on the form trigger before accepting ' +\n    'real candidate data, or explicitly set SYNTHETIC_DATA_ONLY_OVERRIDE = true ' +\n    'in this node if this is genuinely synthetic test data only.'\n  );\n}\n\nconst items = $input.all();\nreturn items.map(item => ({\n  json: {\n    ...item.json,\n    secure_config_auth_confirmed_enabled: AUTH_CONFIRMED_ENABLED,\n    secure_config_synthetic_data_only_override_active: !AUTH_CONFIRMED_ENABLED && SYNTHETIC_DATA_ONLY_OVERRIDE,\n    secure_config_check_version: 'CANDOR secure-config fail-fast v0.1'\n  }\n}));\n"
+        }
+      },
+      {
+        "id": "a4c71f50-a506-4f38-9251-53e404736f0c",
+        "name": "CheckApplicationFormBasics",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          140,
+          700
+        ],
+        "parameters": {
+          "language": "javaScript",
+          "mode": "runOnceForAllItems",
+          "jsCode": "const item = $input.first();\nconst json = item.json || {};\n\nfunction trimmed(v) {\n  return typeof v === 'string' ? v.trim() : '';\n}\n\nconst candidateName = trimmed(json.candidate_name);\nconst contactEmail = trimmed(json.contact_email);\nconst totalYearsExperience = trimmed(json.total_years_experience);\nconst keySkills = trimmed(json.key_skills);\n\nfunction rejected(reason) {\n  return [{\n    json: {\n      candidate_id: null,\n      candidate_reference_submitted: trimmed(json.candidate_reference) || null,\n      intake_status: 'REJECTED',\n      rejection_reason: reason\n    }\n  }];\n}\n\nconst missing = [];\nif (!candidateName) missing.push('candidate_name');\nif (!contactEmail) missing.push('contact_email');\nif (!totalYearsExperience) missing.push('total_years_experience');\nif (!keySkills) missing.push('key_skills');\n\nif (missing.length > 0) {\n  return rejected(`required field(s) missing or empty: ${missing.join(', ')}`);\n}\n\nconst safeStem = candidateName.replace(/[^a-zA-Z0-9]+/g, '-').toUpperCase().slice(0, 24);\nconst candidateId = `APPFORM-${safeStem}-${Date.now()}`;\n\nreturn [{\n  json: {\n    ...json,\n    candidate_id: candidateId,\n    candidate_reference_submitted: trimmed(json.candidate_reference) || null,\n    intake_status: 'VALID'\n  }\n}];\n"
+        }
+      },
+      {
+        "id": "dada140c-0b45-473f-8029-8ff6683a646e",
+        "name": "RouteByApplicationFormValidity",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          380,
+          700
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "version": 2,
+              "leftValue": "",
+              "caseSensitive": true,
+              "typeValidation": "strict"
+            },
+            "conditions": [
+              {
+                "id": "appform-validity1",
+                "leftValue": "={{ $json.intake_status }}",
+                "rightValue": "VALID",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          }
+        }
+      },
+      {
+        "id": "7e89d279-0de3-491a-9c04-817b363473aa",
+        "name": "RejectedApplicationIntake",
+        "type": "n8n-nodes-base.noOp",
+        "typeVersion": 1,
+        "position": [
+          620,
+          860
+        ],
+        "parameters": {}
+      },
+      {
+        "id": "470cb560-34f9-45f8-bfed-81ea3a3bea20",
+        "name": "BuildApplicationCandidateRecord",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          620,
+          700
+        ],
+        "parameters": {
+          "language": "javaScript",
+          "mode": "runOnceForAllItems",
+          "jsCode": "// === CANDOR-02 second source adapter: application-form submission ===\n//\n// ARCHITECTURAL DECISION (stated explicitly, per the build instruction):\n// this node builds the full CANDOR-01-shaped \"verified candidate\n// record\" DIRECTLY from the form's own structured fields and calls\n// CANDOR-04 directly (CallCANDOR04FromApplicationForm) - it does NOT\n// call CANDOR-01's workflow, and no Anthropic extraction call is made\n// anywhere on this path. CANDOR-01/CANDOR-04 are both completely\n// unmodified by this adapter.\n//\n// WHY: CANDOR-01's entire job is resolving uncertainty in UNSTRUCTURED\n// prose - an LLM infers facts from a resume's free text, and\n// VerifyClaimsAgainstSource's literal-quote grounding exists specifically\n// to catch the one failure mode that step can introduce: the model\n// citing a quote that isn't really in the source (hallucination). A\n// candidate typing \"7\" directly into a \"Total Years of Experience\" field\n// has not been through any inference step at all - there is nothing to\n// extract, and therefore nothing that could have been hallucinated. The\n// value IS the evidence, by construction. Running the exact same,\n// real-money Anthropic call on data that is already unambiguous\n// structured input would be pure redundant cost for zero uncertainty\n// -reduction benefit - the same reasoning System Review item 43 already\n// established for CANDOR-04's JD re-extraction (see\n// CANDOR-04-Build-Log.md §27-28): don't pay an LLM to resolve\n// uncertainty that doesn't exist.\n//\n// This node instead reproduces CANDOR-01's OUTPUT SHAPE exactly (the\n// same `fields`/`employment_history`/`portfolio_or_work_sample`/\n// `verification_summary` contract CANDOR-04's own IntakeCandidateRecord\n// already expects and falls back to) so CANDOR-04, CANDOR-05, CANDOR-07,\n// and CANDOR-08 all need ZERO changes to accept this new source - this\n// is a new intake PATH into the same pipeline, not a new pipeline.\n//\n// `evidence_verified: true` for a directly-submitted field is not a\n// weaker or faked verification - it correctly reports the one specific\n// thing that flag has ever meant anywhere in this codebase (\"this value\n// did not arise from an LLM inventing a quote\"), and that claim is\n// trivially and honestly true here: there is no LLM step on this path\n// at all. It says nothing about whether the candidate told the truth -\n// exactly like every other evidence_verified flag in this project, which\n// has never verified factual accuracy, only extraction fidelity.\n//\n// HONEST LIMITATION, stated plainly: quantified_accomplishments and\n// notable_unquantified_claims are deliberately left empty - this form\n// does not collect freeform accomplishment narrative (classifying free\n// text into \"quantified\" vs \"unquantified\" claims without an LLM would\n// mean reinventing a second, cruder extraction path, which this\n// adapter's whole design exists to avoid). Evidence Confidence's\n// denominator (verification_summary) is therefore smaller for an\n// application-form candidate than a typical resume-derived one (the 8\n// scalar fields only, never the 11-15 a resume with several\n// accomplishments produces) - a real, structural difference from the\n// file-upload path's own reporting depth, not a gamed or inflated score.\n// employment_history holds at most ONE entry (the form asks only for the\n// candidate's single most recent/most relevant role, not a full career\n// history), so career_trajectory's \"progression\" sub-component (which\n// needs >=2 entries) will correctly, honestly report as not-computed for\n// every application-form candidate - a real, named scope limit, not a\n// bug.\n\nfunction sha256Hex(bytes) {\n  const K = [\n    0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,\n    0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,\n    0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,\n    0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,\n    0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,\n    0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,\n    0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,\n    0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2\n  ];\n  let H = [0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];\n  const bitLen = bytes.length * 8;\n  let paddedLength = bytes.length + 1;\n  while (paddedLength % 64 !== 56) paddedLength++;\n  paddedLength += 8;\n  const padded = new Uint8Array(paddedLength);\n  padded.set(bytes);\n  padded[bytes.length] = 0x80;\n  const highLen = Math.floor(bitLen / 0x100000000);\n  const lowLen = bitLen >>> 0;\n  const dv = new DataView(padded.buffer);\n  dv.setUint32(paddedLength - 8, highLen, false);\n  dv.setUint32(paddedLength - 4, lowLen, false);\n  const rotr = (x, n) => (x >>> n) | (x << (32 - n));\n  for (let chunkStart = 0; chunkStart < paddedLength; chunkStart += 64) {\n    const w = new Uint32Array(64);\n    for (let i = 0; i < 16; i++) w[i] = dv.getUint32(chunkStart + i * 4, false);\n    for (let i = 16; i < 64; i++) {\n      const s0 = rotr(w[i-15], 7) ^ rotr(w[i-15], 18) ^ (w[i-15] >>> 3);\n      const s1 = rotr(w[i-2], 17) ^ rotr(w[i-2], 19) ^ (w[i-2] >>> 10);\n      w[i] = (w[i-16] + s0 + w[i-7] + s1) >>> 0;\n    }\n    let [a,b,c,d,e,f,g,h] = H;\n    for (let i = 0; i < 64; i++) {\n      const S1 = rotr(e,6) ^ rotr(e,11) ^ rotr(e,25);\n      const ch = (e & f) ^ (~e & g);\n      const temp1 = (h + S1 + ch + K[i] + w[i]) >>> 0;\n      const S0 = rotr(a,2) ^ rotr(a,13) ^ rotr(a,22);\n      const maj = (a & b) ^ (a & c) ^ (b & c);\n      const temp2 = (S0 + maj) >>> 0;\n      h = g; g = f; f = e; e = (d + temp1) >>> 0;\n      d = c; c = b; b = a; a = (temp1 + temp2) >>> 0;\n    }\n    H[0]=(H[0]+a)>>>0; H[1]=(H[1]+b)>>>0; H[2]=(H[2]+c)>>>0; H[3]=(H[3]+d)>>>0;\n    H[4]=(H[4]+e)>>>0; H[5]=(H[5]+f)>>>0; H[6]=(H[6]+g)>>>0; H[7]=(H[7]+h)>>>0;\n  }\n  return H.map(x => x.toString(16).padStart(8,'0')).join('');\n}\n\nfunction computeShingleFingerprint(text) {\n  const words = text.toLowerCase().replace(/[^a-z0-9\\s]/g, ' ').split(/\\s+/).filter(Boolean);\n  const SHINGLE_SIZE = 5;\n  const MIN_HASH_COUNT = 20;\n  if (words.length < SHINGLE_SIZE) {\n    return [sha256Hex(new TextEncoder().encode(words.join(' ')))];\n  }\n  const shingleHashes = new Set();\n  for (let i = 0; i <= words.length - SHINGLE_SIZE; i++) {\n    const shingle = words.slice(i, i + SHINGLE_SIZE).join(' ');\n    shingleHashes.add(sha256Hex(new TextEncoder().encode(shingle)));\n  }\n  return Array.from(shingleHashes).sort().slice(0, MIN_HASH_COUNT);\n}\n\nconst INJECTION_PATTERNS = [\n  { label: 'ignore_prior_instructions', re: /ignore\\s+(all\\s+)?(the\\s+)?(previous|prior|above|earlier)\\s+instructions?/i },\n  { label: 'disregard_prior_instructions', re: /disregard\\s+(all\\s+)?(the\\s+)?(previous|prior|above|earlier)\\s+instructions?/i },\n  { label: 'new_instructions_marker', re: /\\bnew\\s+instructions?\\s*[:.]/i },\n  { label: 'you_are_now', re: /\\byou\\s+are\\s+now\\s+(a|an|the)\\b/i },\n  { label: 'system_prompt_reference', re: /\\bsystem\\s+prompt\\b/i },\n  { label: 'rate_all_skills_as_expert', re: /rate\\s+(all|every|each)\\s+skills?\\s+as\\s+(expert|10\\s*\\/\\s*10|maximum|top)/i },\n  { label: 'act_as_persona', re: /\\bact\\s+as\\s+(a|an)\\s+/i },\n  { label: 'do_not_follow_rules_above', re: /do\\s+not\\s+(follow|apply)\\s+the\\s+(rules|instructions)\\s+above/i },\n  { label: 'assistant_role_injection', re: /\\b(assistant|ai)\\s*:\\s*(ignore|okay|sure|understood)/i }\n];\n\nfunction detectInjection(text) {\n  const t = (text || '').toString();\n  const matched = INJECTION_PATTERNS.filter(p => p.re.test(t)).map(p => p.label);\n  return { suspected: matched.length > 0, matched };\n}\n\nconst item = $input.first().json;\n\nfunction s(v) {\n  return typeof v === 'string' ? v.trim() : '';\n}\n\nconst candidateName = s(item.candidate_name);\nconst contactEmail = s(item.contact_email);\nconst totalYearsExperienceText = s(item.total_years_experience);\nconst keySkillsText = s(item.key_skills);\nconst mostRecentTitle = s(item.most_recent_title);\nconst mostRecentEmployer = s(item.most_recent_employer);\nconst yearsInRole = s(item.years_in_role);\nconst education = s(item.education);\nconst certifications = s(item.certifications);\nconst portfolioUrl = s(item.portfolio_url);\n\nfunction directField(fieldName, rawValue, displayValue) {\n  const value = displayValue !== undefined ? displayValue : rawValue;\n  if (!rawValue) {\n    return { field: fieldName, value: 'insufficient information', source_quote: '', evidence_verified: false, reason: 'field not provided on the application form' };\n  }\n  const quote = Array.isArray(value) ? value.join(', ') : String(value);\n  return { field: fieldName, value, source_quote: quote, evidence_verified: true, reason: 'directly submitted via the CANDOR-02 application-form adapter - no extraction step, so no hallucination risk to check for' };\n}\n\n// === Real bug, found via real testing (not assumed correct) ===\n// CalculateMatchScore's domain-relevance gate (yearsDomainRelevance,\n// reused for years/tenure/trajectory/portfolio - see that node's own\n// header comment) checks for SHARED VOCABULARY between\n// candidate_years_source_quote and the JD's own years-requirement quote.\n// A bare number (\"6\") has zero domain words to share, no matter how\n// qualified the candidate actually is - the first live test through\n// this adapter (a candidate with 6 relevant years, matching Salesforce/\n// HubSpot skills) scored match_score 20 instead of a real ~90+, because\n// years/tenure/trajectory ALL reuse this one quote and all zeroed out\n// together. Fixed by synthesizing a real sentence from the OTHER fields\n// already collected on this form (title + skills), giving the SAME\n// domain-relevance check real vocabulary to compare against - the exact\n// role a resume's own prose sentence plays for a file-upload candidate.\n// This does not force a match - a candidate whose own wording genuinely\n// shares no vocabulary with the JD's is still gated to 0, same as the\n// file-upload path's own already-documented word-overlap limitation\n// (System Review item 14) - this fix removes a SYSTEMATIC failure (every\n// form candidate, always), not the heuristic's inherent, already-accepted\n// residual limitation (a real candidate whose specific wording doesn't\n// happen to overlap the JD's).\n// SECOND real bug, also found via real testing (the first live run of\n// this fix, before this correction): this function originally also took\n// `title` and spliced it into the quote (\"...as a <title>...\"). Since\n// most_recent_title is an EXCLUDED field (never one of Section 7's\n// permitted factors), embedding its raw text into years_of_experience's\n// source_quote - which IS persisted inside matchScoreInputsUsed - made\n// BuildAuditRecord's own leak-check correctly fire:\n// \"no_excluded_field_leaked\": false, most_recent_title's raw value found\n// verbatim inside the scoring inputs actually used. The exact leak class\n// System Review item 13's v0.7 fix (career_trajectory stripping title\n// down to rank-only) already exists to prevent, reintroduced here\n// through a different field. Fixed by dropping title entirely -\n// key_skills alone (already allow-listed in SelectPermittedScoringInputs)\n// is enough real domain vocabulary, with zero leak risk - reconfirmed by\n// re-running the leak-check on a real live submission after this fix.\nfunction yearsSourceQuote(yearsText, skillsText) {\n  const parts = [`${yearsText} years of experience`];\n  if (skillsText) parts.push(`with skills including ${skillsText}`);\n  return parts.join(' ');\n}\n\nconst keySkillsArray = keySkillsText\n  ? keySkillsText.split(',').map(sVal => sVal.trim()).filter(Boolean)\n  : [];\n\nconst fields = [\n  directField('candidate_name', candidateName),\n  directField('contact_email', contactEmail),\n  (totalYearsExperienceText\n    ? { field: 'total_years_experience_claimed', value: totalYearsExperienceText, source_quote: yearsSourceQuote(totalYearsExperienceText, keySkillsText), evidence_verified: true, reason: 'directly submitted via the CANDOR-02 application-form adapter - source_quote synthesized from this same submission\\'s own title/skills fields so CalculateMatchScore\\'s domain-relevance gate has real vocabulary to check, not just a bare number' }\n    : { field: 'total_years_experience_claimed', value: 'insufficient information', source_quote: '', evidence_verified: false, reason: 'field not provided on the application form' }),\n  directField('most_recent_title', mostRecentTitle),\n  directField('most_recent_employer', mostRecentEmployer),\n  directField('key_skills', keySkillsText, keySkillsArray),\n  directField('education', education),\n  directField('certifications', certifications)\n];\n\nconst verifiedCount = fields.filter(f => f.evidence_verified).length;\n\nlet employmentHistory = [];\nif (mostRecentTitle || mostRecentEmployer || yearsInRole) {\n  const durationText = /^\\d+(\\.\\d+)?$/.test(yearsInRole) ? `${yearsInRole} years` : (yearsInRole || 'insufficient information');\n  const hasDuration = durationText !== 'insufficient information';\n  employmentHistory = [{\n    field: 'employment_history[0]',\n    title: mostRecentTitle || 'insufficient information',\n    employer: mostRecentEmployer || 'insufficient information',\n    duration_text: durationText,\n    source_quote: hasDuration ? durationText : '',\n    evidence_verified: hasDuration,\n    title_verified: !!mostRecentTitle,\n    employer_verified: !!mostRecentEmployer,\n    reason: hasDuration\n      ? 'directly submitted via the CANDOR-02 application-form adapter - no extraction step, so no hallucination risk to check for'\n      : 'years in this role not provided on the application form'\n  }];\n}\n\nconst portfolioOrWorkSample = directField('portfolio_or_work_sample', portfolioUrl);\n\nconst canonicalFieldBlob = [\n  `Candidate Name: ${candidateName}`,\n  `Contact Email: ${contactEmail}`,\n  `Total Years of Experience: ${totalYearsExperienceText}`,\n  `Key Skills: ${keySkillsText}`,\n  `Most Recent Title: ${mostRecentTitle}`,\n  `Most Recent Employer: ${mostRecentEmployer}`,\n  `Years in Most Recent Role: ${yearsInRole}`,\n  `Education: ${education}`,\n  `Certifications: ${certifications}`,\n  `Portfolio or Work Sample: ${portfolioUrl}`\n].join('\\n');\n\nconst canonical = canonicalFieldBlob\n  .normalize('NFC')\n  .replace(/\\r\\n?/g, '\\n')\n  .replace(/\\n{3,}/g, '\\n\\n')\n  .trim();\n\nconst resumeContentHash = sha256Hex(new TextEncoder().encode(canonical));\nconst shingleFingerprint = computeShingleFingerprint(canonical);\n\nconst injectionCheck = detectInjection([candidateName, contactEmail, mostRecentTitle, mostRecentEmployer, keySkillsText, education, certifications, portfolioUrl].join(' \\n '));\n\nreturn [{\n  json: {\n    candidate_id: item.candidate_id,\n    resume_filename: 'APPLICATION_FORM_SUBMISSION',\n    intake_source: 'application_form',\n    extraction_status: 'PARSED_OK',\n    resume_content_hash: resumeContentHash,\n    resume_content_hash_algorithm_version: 'v1.0',\n    resume_shingle_fingerprint: shingleFingerprint,\n    resume_shingle_fingerprint_version: 'CANDOR near-dup shingle-fingerprint v0.1',\n    tenant_id: 'default-tenant',\n    processed_at: new Date().toISOString(),\n    model_used: 'direct_form_entry (no Anthropic call on this path - see this node\\'s own header comment)',\n    prompt_injection_suspected: injectionCheck.suspected,\n    prompt_injection_matched_patterns: injectionCheck.matched,\n    prompt_injection_check_version: 'CANDOR prompt-injection pattern-flag v0.1',\n    fields,\n    quantified_accomplishments: [],\n    notable_unquantified_claims: [],\n    employment_history: employmentHistory,\n    portfolio_or_work_sample: portfolioOrWorkSample,\n    verification_summary: {\n      total_items_checked: fields.length,\n      evidence_verified_count: verifiedCount,\n      not_verified_count: fields.length - verifiedCount\n    }\n  }\n}];\n"
+        }
+      },
+      {
+        "id": "ec9c4f73-3a51-4ac1-851b-edb5d7ec5084",
+        "name": "CallCANDOR04FromApplicationForm",
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1.3,
+        "position": [
+          860,
+          700
+        ],
+        "parameters": {
+          "source": "database",
+          "workflowId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "sqYbHtxZPyWRgAjo"
+          },
+          "workflowInputs": {
+            "mappingMode": "defineBelow",
+            "value": {}
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "767fcea9-9481-4876-b0c5-3f92ee6173f0",
+        "name": "FormTriggerATSExport",
+        "type": "n8n-nodes-base.formTrigger",
+        "typeVersion": 2.6,
+        "position": [
+          -100,
+          1000
+        ],
+        "parameters": {
+          "formTitle": "CANDOR - ATS Export Upload (Test)",
+          "formDescription": "Synthetic test intake form for CANDOR-02's third source adapter: a batch ATS export file (JSON, one object per candidate). Each candidate record either carries raw resume_text (routed through real CANDOR-01 extraction) or already-parsed structured fields (routed directly to CANDOR-04) - see CANDOR-02-Build-Log.md for the discriminator rule.",
+          "path": "candor02-ats-export",
+          "formFields": {
+            "values": [
+              {
+                "fieldLabel": "ATS Export File (JSON)",
+                "fieldType": "file",
+                "fieldName": "ats_export_file",
+                "requiredField": true,
+                "multipleFiles": false,
+                "acceptFileTypes": ".json"
+              }
+            ]
+          },
+          "options": {},
+          "authentication": "basicAuth"
+        },
+        "credentials": {
+          "httpBasicAuth": {
+            "note": "credential reference redacted for public release - see private repo"
+          }
+        },
+        "webhookId": "0a8205a5-7804-4759-8bd6-3f79e586a82b"
+      },
+      {
+        "id": "16f83897-a5d6-4702-8a59-0f106f964141",
+        "name": "CheckSecureConfigOverrideATSExport",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          20,
+          1000
+        ],
+        "parameters": {
+          "language": "javaScript",
+          "mode": "runOnceForAllItems",
+          "jsCode": "const AUTH_CONFIRMED_ENABLED = true;\nconst SYNTHETIC_DATA_ONLY_OVERRIDE = true;\n\nif (!AUTH_CONFIRMED_ENABLED && !SYNTHETIC_DATA_ONLY_OVERRIDE) {\n  throw new Error(\n    'CANDOR-02 CheckSecureConfigOverrideATSExport: refusing to accept this submission. ' +\n    'FormTriggerATSExport has no confirmed authentication configured, and ' +\n    'SYNTHETIC_DATA_ONLY_OVERRIDE is not set. Per CANDOR Master Instructions ' +\n    'Section 14, enable authentication on the form trigger before accepting ' +\n    'real candidate data, or explicitly set SYNTHETIC_DATA_ONLY_OVERRIDE = true ' +\n    'in this node if this is genuinely synthetic test data only.'\n  );\n}\n\nconst items = $input.all();\nreturn items.map(item => ({\n  json: {\n    ...item.json,\n    secure_config_auth_confirmed_enabled: AUTH_CONFIRMED_ENABLED,\n    secure_config_synthetic_data_only_override_active: !AUTH_CONFIRMED_ENABLED && SYNTHETIC_DATA_ONLY_OVERRIDE,\n    secure_config_check_version: 'CANDOR secure-config fail-fast v0.1'\n  },\n  binary: item.binary\n}));\n"
+        }
+      },
+      {
+        "id": "85f2432e-ded9-45f1-8eb7-9d0267236fe4",
+        "name": "ExtractATSExportFileText",
+        "type": "n8n-nodes-base.extractFromFile",
+        "typeVersion": 1.1,
+        "position": [
+          180,
+          1000
+        ],
+        "parameters": {
+          "operation": "text",
+          "binaryPropertyName": "ats_export_file",
+          "destinationKey": "ats_export_text",
+          "options": {}
+        }
+      },
+      {
+        "id": "ee9e0b51-a47c-45f8-b222-ed7e39df4f15",
+        "name": "ParseAndClassifyATSExportBatch",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          380,
+          1000
+        ],
+        "parameters": {
+          "language": "javaScript",
+          "mode": "runOnceForAllItems",
+          "jsCode": "function sha256Hex(bytes) {\n  const K = [\n    0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,\n    0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,\n    0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,\n    0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,\n    0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,\n    0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,\n    0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,\n    0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2\n  ];\n  let H = [0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];\n  const bitLen = bytes.length * 8;\n  let paddedLength = bytes.length + 1;\n  while (paddedLength % 64 !== 56) paddedLength++;\n  paddedLength += 8;\n  const padded = new Uint8Array(paddedLength);\n  padded.set(bytes);\n  padded[bytes.length] = 0x80;\n  const highLen = Math.floor(bitLen / 0x100000000);\n  const lowLen = bitLen >>> 0;\n  const dv = new DataView(padded.buffer);\n  dv.setUint32(paddedLength - 8, highLen, false);\n  dv.setUint32(paddedLength - 4, lowLen, false);\n  const rotr = (x, n) => (x >>> n) | (x << (32 - n));\n  for (let chunkStart = 0; chunkStart < paddedLength; chunkStart += 64) {\n    const w = new Uint32Array(64);\n    for (let i = 0; i < 16; i++) w[i] = dv.getUint32(chunkStart + i * 4, false);\n    for (let i = 16; i < 64; i++) {\n      const s0 = rotr(w[i-15], 7) ^ rotr(w[i-15], 18) ^ (w[i-15] >>> 3);\n      const s1 = rotr(w[i-2], 17) ^ rotr(w[i-2], 19) ^ (w[i-2] >>> 10);\n      w[i] = (w[i-16] + s0 + w[i-7] + s1) >>> 0;\n    }\n    let [a,b,c,d,e,f,g,h] = H;\n    for (let i = 0; i < 64; i++) {\n      const S1 = rotr(e,6) ^ rotr(e,11) ^ rotr(e,25);\n      const ch = (e & f) ^ (~e & g);\n      const temp1 = (h + S1 + ch + K[i] + w[i]) >>> 0;\n      const S0 = rotr(a,2) ^ rotr(a,13) ^ rotr(a,22);\n      const maj = (a & b) ^ (a & c) ^ (b & c);\n      const temp2 = (S0 + maj) >>> 0;\n      h = g; g = f; f = e; e = (d + temp1) >>> 0;\n      d = c; c = b; b = a; a = (temp1 + temp2) >>> 0;\n    }\n    H[0]=(H[0]+a)>>>0; H[1]=(H[1]+b)>>>0; H[2]=(H[2]+c)>>>0; H[3]=(H[3]+d)>>>0;\n    H[4]=(H[4]+e)>>>0; H[5]=(H[5]+f)>>>0; H[6]=(H[6]+g)>>>0; H[7]=(H[7]+h)>>>0;\n  }\n  return H.map(x => x.toString(16).padStart(8,'0')).join('');\n}\n\nfunction computeShingleFingerprint(text) {\n  const words = text.toLowerCase().replace(/[^a-z0-9\\s]/g, ' ').split(/\\s+/).filter(Boolean);\n  const SHINGLE_SIZE = 5;\n  const MIN_HASH_COUNT = 20;\n  if (words.length < SHINGLE_SIZE) {\n    return [sha256Hex(new TextEncoder().encode(words.join(' ')))];\n  }\n  const shingleHashes = new Set();\n  for (let i = 0; i <= words.length - SHINGLE_SIZE; i++) {\n    const shingle = words.slice(i, i + SHINGLE_SIZE).join(' ');\n    shingleHashes.add(sha256Hex(new TextEncoder().encode(shingle)));\n  }\n  return Array.from(shingleHashes).sort().slice(0, MIN_HASH_COUNT);\n}\n\nfunction canonicalizeText(text) {\n  return (text || '')\n    .normalize('NFC')\n    .replace(/\\r\\n?/g, '\\n')\n    .replace(/\\n{3,}/g, '\\n\\n')\n    .trim();\n}\n\nfunction repairMojibake(text) {\n  if (!text) return { text, repaired: false, repairedCount: 0 };\n  const highMap = {\n    0x80: 0x20AC, 0x82: 0x201A, 0x83: 0x0192, 0x84: 0x201E, 0x85: 0x2026,\n    0x86: 0x2020, 0x87: 0x2021, 0x88: 0x02C6, 0x89: 0x2030, 0x8A: 0x0160,\n    0x8B: 0x2039, 0x8C: 0x0152, 0x8E: 0x017D, 0x91: 0x2018, 0x92: 0x2019,\n    0x93: 0x201C, 0x94: 0x201D, 0x95: 0x2022, 0x96: 0x2013, 0x97: 0x2014,\n    0x98: 0x02DC, 0x99: 0x2122, 0x9A: 0x0161, 0x9B: 0x203A, 0x9C: 0x0153,\n    0x9E: 0x017E, 0x9F: 0x0178\n  };\n  const reverseMap = {};\n  for (let b = 0; b <= 0xFF; b++) {\n    const cp = highMap[b] !== undefined ? highMap[b] : b;\n    reverseMap[cp] = b;\n  }\n  let repairedCount = 0;\n  function fix(base, nextChar) {\n    if (/\\s/.test(nextChar)) return null;\n    const b = reverseMap[nextChar.codePointAt(0)];\n    if (b === undefined) return null;\n    return String.fromCodePoint(base | (b & 0x3F));\n  }\n  let result = text;\n  const prefixRules = [['â€', 0x2000], ['â–', 0x2580], ['Ã', 0x00C0], ['Â', 0x0080]];\n  for (const [prefix, base] of prefixRules) {\n    const re = new RegExp(prefix + '(.)', 'gu');\n    result = result.replace(re, (m, c) => {\n      const fixed = fix(base, c);\n      if (fixed !== null) { repairedCount++; return fixed; }\n      return m;\n    });\n  }\n  return { text: result, repaired: repairedCount > 0, repairedCount };\n}\n\nfunction stripReplacementChars(text) {\n  const count = (text.match(/�/g) || []).length;\n  return { text: text.replace(/�/g, ''), count };\n}\n\nfunction normalizeWhitespace(text) {\n  return text\n    .replace(/ /g, ' ')\n    .replace(/\\r\\n?/g, '\\n')\n    .split('\\n')\n    .map(line => line.replace(/[ \\t]+/g, ' ').trimEnd())\n    .join('\\n')\n    .replace(/\\n{3,}/g, '\\n\\n')\n    .trim();\n}\n\nfunction s(v) {\n  return typeof v === 'string' ? v.trim() : '';\n}\n\nconst REQUIRED_DIRECT_FIELDS = ['candidate_name', 'contact_email', 'total_years_experience', 'key_skills'];\n\nconst item = $input.first().json;\nlet envelope;\ntry {\n  envelope = JSON.parse(item.ats_export_text || '');\n} catch (e) {\n  throw new Error(`CANDOR-02 ParseAndClassifyATSExportBatch: the uploaded ATS export file is not valid JSON - refusing the whole batch (no per-record recovery is possible when the file's own structure can't be parsed). Parse error: ${e.message}`);\n}\n\nif (!envelope || typeof envelope !== 'object' || Array.isArray(envelope) || !Array.isArray(envelope.candidates)) {\n  throw new Error('CANDOR-02 ParseAndClassifyATSExportBatch: the uploaded ATS export file does not have the expected shape - a JSON object with a top-level \"candidates\" array. Refusing the whole batch.');\n}\n\nconst seenHashes = new Set();\nconst results = [];\n\nenvelope.candidates.forEach((record, index) => {\n  try {\n    if (!record || typeof record !== 'object' || Array.isArray(record)) {\n      results.push({ json: { ats_record_index: index, record_type: 'MALFORMED', rejection_reason: `record is not a JSON object (got ${record === null ? 'null' : Array.isArray(record) ? 'array' : typeof record})` } });\n      return;\n    }\n\n    const candidateName = s(record.candidate_name);\n    if (!candidateName) {\n      results.push({ json: { ats_record_index: index, record_type: 'MALFORMED', rejection_reason: 'candidate_name missing or empty' } });\n      return;\n    }\n\n    const rawResumeText = typeof record.resume_text === 'string' ? record.resume_text : '';\n    const hasResumeText = rawResumeText.trim().length > 0;\n\n    if (hasResumeText) {\n      const step1 = repairMojibake(rawResumeText);\n      const step2 = stripReplacementChars(step1.text);\n      const finalText = normalizeWhitespace(step2.text);\n      const canonical = canonicalizeText(finalText);\n      const hash = sha256Hex(new TextEncoder().encode(canonical));\n\n      if (seenHashes.has(hash)) {\n        results.push({ json: { ats_record_index: index, record_type: 'IN_BATCH_DUPLICATE', candidate_name: candidateName, resume_content_hash: hash, rejection_reason: 'identical resume_text already seen earlier in this same batch - skipped before any Anthropic call was made' } });\n        return;\n      }\n      seenHashes.add(hash);\n\n      const safeStem = candidateName.replace(/[^a-zA-Z0-9]+/g, '-').toUpperCase().slice(0, 24);\n      results.push({\n        json: {\n          ats_record_index: index,\n          record_type: 'NEEDS_EXTRACTION',\n          candidate_id: `ATSEXPORT-${safeStem}-${Date.now()}-${index}`,\n          resume_filename: 'ATS_EXPORT_RECORD',\n          resume_text: finalText,\n          resume_content_hash: hash,\n          resume_content_hash_algorithm_version: 'v1.0',\n          resume_shingle_fingerprint: computeShingleFingerprint(canonical),\n          resume_shingle_fingerprint_version: 'CANDOR near-dup shingle-fingerprint v0.1',\n          tenant_id: 'default-tenant',\n          intake_source: 'ats_export',\n          ats_candidate_id_submitted: record.ats_candidate_id ?? null,\n          normalization_notes: {\n            mojibake_repair_applied: step1.repaired,\n            mojibake_repairs_count: step1.repairedCount,\n            replacement_chars_stripped: step2.count\n          }\n        }\n      });\n      return;\n    }\n\n    const missing = REQUIRED_DIRECT_FIELDS.filter(f => !s(record[f]));\n    if (missing.length > 0) {\n      results.push({ json: { ats_record_index: index, record_type: 'MALFORMED', candidate_name: candidateName, rejection_reason: `neither resume_text nor the required direct fields are all present - missing: ${missing.join(', ')}` } });\n      return;\n    }\n\n    const canonicalFieldBlob = [\n      `Candidate Name: ${s(record.candidate_name)}`,\n      `Contact Email: ${s(record.contact_email)}`,\n      `Total Years of Experience: ${s(record.total_years_experience)}`,\n      `Key Skills: ${s(record.key_skills)}`,\n      `Most Recent Title: ${s(record.most_recent_title)}`,\n      `Most Recent Employer: ${s(record.most_recent_employer)}`,\n      `Years in Most Recent Role: ${s(record.years_in_role)}`,\n      `Education: ${s(record.education)}`,\n      `Certifications: ${s(record.certifications)}`,\n      `Portfolio or Work Sample: ${s(record.portfolio_url)}`\n    ].join('\\n');\n    const canonical = canonicalizeText(canonicalFieldBlob);\n    const hash = sha256Hex(new TextEncoder().encode(canonical));\n\n    if (seenHashes.has(hash)) {\n      results.push({ json: { ats_record_index: index, record_type: 'IN_BATCH_DUPLICATE', candidate_name: candidateName, resume_content_hash: hash, rejection_reason: 'identical structured-field content already seen earlier in this same batch' } });\n      return;\n    }\n    seenHashes.add(hash);\n\n    const safeStem = candidateName.replace(/[^a-zA-Z0-9]+/g, '-').toUpperCase().slice(0, 24);\n    results.push({\n      json: {\n        ats_record_index: index,\n        record_type: 'DIRECT',\n        candidate_id: `ATSEXPORT-${safeStem}-${Date.now()}-${index}`,\n        candidate_name: s(record.candidate_name),\n        contact_email: s(record.contact_email),\n        total_years_experience: s(record.total_years_experience),\n        key_skills: s(record.key_skills),\n        most_recent_title: s(record.most_recent_title),\n        most_recent_employer: s(record.most_recent_employer),\n        years_in_role: s(record.years_in_role),\n        education: s(record.education),\n        certifications: s(record.certifications),\n        portfolio_url: s(record.portfolio_url),\n        resume_content_hash: hash,\n        resume_content_hash_algorithm_version: 'v1.0',\n        resume_shingle_fingerprint: computeShingleFingerprint(canonical),\n        resume_shingle_fingerprint_version: 'CANDOR near-dup shingle-fingerprint v0.1',\n        tenant_id: 'default-tenant',\n        intake_source: 'ats_export',\n        ats_candidate_id_submitted: record.ats_candidate_id ?? null\n      }\n    });\n  } catch (recordError) {\n    results.push({ json: { ats_record_index: index, record_type: 'MALFORMED', rejection_reason: `unexpected error while processing this record: ${recordError.message}` } });\n  }\n});\n\nreturn results;\n"
+        }
+      },
+      {
+        "id": "6c5933f4-6690-4b5c-b096-e068703dcc88",
+        "name": "RouteByATSNeedsExtraction",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          620,
+          1000
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "version": 2,
+              "leftValue": "",
+              "caseSensitive": true,
+              "typeValidation": "strict"
+            },
+            "conditions": [
+              {
+                "id": "ats-needext-1",
+                "leftValue": "={{ $json.record_type }}",
+                "rightValue": "NEEDS_EXTRACTION",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          }
+        }
+      },
+      {
+        "id": "7c338f79-a75a-4adb-bbf0-6dfc935250c1",
+        "name": "RouteByATSDirect",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          860,
+          1080
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "version": 2,
+              "leftValue": "",
+              "caseSensitive": true,
+              "typeValidation": "strict"
+            },
+            "conditions": [
+              {
+                "id": "ats-direct-1",
+                "leftValue": "={{ $json.record_type }}",
+                "rightValue": "DIRECT",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          }
+        }
+      },
+      {
+        "id": "94e18e26-4413-4697-ba04-16972a79fa6c",
+        "name": "RouteByATSInBatchDuplicate",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.3,
+        "position": [
+          1100,
+          1160
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "version": 2,
+              "leftValue": "",
+              "caseSensitive": true,
+              "typeValidation": "strict"
+            },
+            "conditions": [
+              {
+                "id": "ats-inbatch-1",
+                "leftValue": "={{ $json.record_type }}",
+                "rightValue": "IN_BATCH_DUPLICATE",
+                "operator": {
+                  "type": "string",
+                  "operation": "equals"
+                }
+              }
+            ],
+            "combinator": "and"
+          }
+        }
+      },
+      {
+        "id": "4578375f-8f85-450a-b424-057af278a0d6",
+        "name": "SkippedATSInBatchDuplicateRecord",
+        "type": "n8n-nodes-base.noOp",
+        "typeVersion": 1,
+        "position": [
+          1340,
+          1120
+        ],
+        "parameters": {}
+      },
+      {
+        "id": "3c5b16d2-a3b4-45d1-b648-642f1485a0ac",
+        "name": "RejectedATSRecord",
+        "type": "n8n-nodes-base.noOp",
+        "typeVersion": 1,
+        "position": [
+          1340,
+          1220
+        ],
+        "parameters": {}
+      },
+      {
+        "id": "3164d4ae-750b-436c-b0cf-8ff5cfd45918",
+        "name": "CallCANDOR01ForATSExport",
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1.3,
+        "position": [
+          860,
+          900
+        ],
+        "parameters": {
+          "source": "database",
+          "mode": "each",
+          "workflowId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "f2WXrhjZrJPINZQV"
+          },
+          "workflowInputs": {
+            "mappingMode": "defineBelow",
+            "value": {}
+          },
+          "options": {}
+        },
+        "onError": "continueRegularOutput"
+      },
+      {
+        "id": "f740ab40-c994-429f-b014-899e2e2dc76c",
+        "name": "BuildATSDirectCandidateRecord",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1100,
+          1000
+        ],
+        "parameters": {
+          "language": "javaScript",
+          "mode": "runOnceForAllItems",
+          "jsCode": "const INJECTION_PATTERNS = [\n  { label: 'ignore_prior_instructions', re: /ignore\\s+(all\\s+)?(the\\s+)?(previous|prior|above|earlier)\\s+instructions?/i },\n  { label: 'disregard_prior_instructions', re: /disregard\\s+(all\\s+)?(the\\s+)?(previous|prior|above|earlier)\\s+instructions?/i },\n  { label: 'new_instructions_marker', re: /\\bnew\\s+instructions?\\s*[:.]/i },\n  { label: 'you_are_now', re: /\\byou\\s+are\\s+now\\s+(a|an|the)\\b/i },\n  { label: 'system_prompt_reference', re: /\\bsystem\\s+prompt\\b/i },\n  { label: 'rate_all_skills_as_expert', re: /rate\\s+(all|every|each)\\s+skills?\\s+as\\s+(expert|10\\s*\\/\\s*10|maximum|top)/i },\n  { label: 'act_as_persona', re: /\\bact\\s+as\\s+(a|an)\\s+/i },\n  { label: 'do_not_follow_rules_above', re: /do\\s+not\\s+(follow|apply)\\s+the\\s+(rules|instructions)\\s+above/i },\n  { label: 'assistant_role_injection', re: /\\b(assistant|ai)\\s*:\\s*(ignore|okay|sure|understood)/i }\n];\n\nfunction detectInjection(text) {\n  const t = (text || '').toString();\n  const matched = INJECTION_PATTERNS.filter(p => p.re.test(t)).map(p => p.label);\n  return { suspected: matched.length > 0, matched };\n}\n\nconst item = $input.first().json;\n\nfunction s(v) {\n  return typeof v === 'string' ? v.trim() : '';\n}\n\nconst candidateName = s(item.candidate_name);\nconst contactEmail = s(item.contact_email);\nconst totalYearsExperienceText = s(item.total_years_experience);\nconst keySkillsText = s(item.key_skills);\nconst mostRecentTitle = s(item.most_recent_title);\nconst mostRecentEmployer = s(item.most_recent_employer);\nconst yearsInRole = s(item.years_in_role);\nconst education = s(item.education);\nconst certifications = s(item.certifications);\nconst portfolioUrl = s(item.portfolio_url);\n\nfunction directField(fieldName, rawValue, displayValue) {\n  const value = displayValue !== undefined ? displayValue : rawValue;\n  if (!rawValue) {\n    return { field: fieldName, value: 'insufficient information', source_quote: '', evidence_verified: false, reason: 'field not provided on the ATS export record' };\n  }\n  const quote = Array.isArray(value) ? value.join(', ') : String(value);\n  return { field: fieldName, value, source_quote: quote, evidence_verified: true, reason: 'directly submitted via the CANDOR-02 ATS-export adapter (structured record, no resume text) - no extraction step, so no hallucination risk to check for' };\n}\n\nfunction yearsSourceQuote(yearsText, skillsText) {\n  const parts = [`${yearsText} years of experience`];\n  if (skillsText) parts.push(`with skills including ${skillsText}`);\n  return parts.join(' ');\n}\n\nconst keySkillsArray = keySkillsText\n  ? keySkillsText.split(',').map(sVal => sVal.trim()).filter(Boolean)\n  : [];\n\nconst fields = [\n  directField('candidate_name', candidateName),\n  directField('contact_email', contactEmail),\n  (totalYearsExperienceText\n    ? { field: 'total_years_experience_claimed', value: totalYearsExperienceText, source_quote: yearsSourceQuote(totalYearsExperienceText, keySkillsText), evidence_verified: true, reason: 'directly submitted via the CANDOR-02 ATS-export adapter - source_quote synthesized from this same record\\'s own key_skills field (an already-permitted field, never an excluded one) so CalculateMatchScore\\'s domain-relevance gate has real vocabulary to check, not just a bare number' }\n    : { field: 'total_years_experience_claimed', value: 'insufficient information', source_quote: '', evidence_verified: false, reason: 'field not provided on the ATS export record' }),\n  directField('most_recent_title', mostRecentTitle),\n  directField('most_recent_employer', mostRecentEmployer),\n  directField('key_skills', keySkillsText, keySkillsArray),\n  directField('education', education),\n  directField('certifications', certifications)\n];\n\nconst verifiedCount = fields.filter(f => f.evidence_verified).length;\n\nlet employmentHistory = [];\nif (mostRecentTitle || mostRecentEmployer || yearsInRole) {\n  const durationText = /^\\d+(\\.\\d+)?$/.test(yearsInRole) ? `${yearsInRole} years` : (yearsInRole || 'insufficient information');\n  const hasDuration = durationText !== 'insufficient information';\n  employmentHistory = [{\n    field: 'employment_history[0]',\n    title: mostRecentTitle || 'insufficient information',\n    employer: mostRecentEmployer || 'insufficient information',\n    duration_text: durationText,\n    source_quote: hasDuration ? durationText : '',\n    evidence_verified: hasDuration,\n    title_verified: !!mostRecentTitle,\n    employer_verified: !!mostRecentEmployer,\n    reason: hasDuration\n      ? 'directly submitted via the CANDOR-02 ATS-export adapter - no extraction step, so no hallucination risk to check for'\n      : 'years in this role not provided on the ATS export record'\n  }];\n}\n\nconst portfolioOrWorkSample = directField('portfolio_or_work_sample', portfolioUrl);\n\nconst injectionCheck = detectInjection([candidateName, contactEmail, mostRecentTitle, mostRecentEmployer, keySkillsText, education, certifications, portfolioUrl].join(' \\n '));\n\nreturn [{\n  json: {\n    candidate_id: item.candidate_id,\n    resume_filename: 'ATS_EXPORT_RECORD',\n    intake_source: 'ats_export',\n    ats_candidate_id_submitted: item.ats_candidate_id_submitted ?? null,\n    extraction_status: 'PARSED_OK',\n    resume_content_hash: item.resume_content_hash,\n    resume_content_hash_algorithm_version: item.resume_content_hash_algorithm_version,\n    resume_shingle_fingerprint: item.resume_shingle_fingerprint,\n    resume_shingle_fingerprint_version: item.resume_shingle_fingerprint_version,\n    tenant_id: item.tenant_id,\n    processed_at: new Date().toISOString(),\n    model_used: 'direct_ats_export_entry (no Anthropic call on this path - structured record, no resume text)',\n    prompt_injection_suspected: injectionCheck.suspected,\n    prompt_injection_matched_patterns: injectionCheck.matched,\n    prompt_injection_check_version: 'CANDOR prompt-injection pattern-flag v0.1',\n    fields,\n    quantified_accomplishments: [],\n    notable_unquantified_claims: [],\n    employment_history: employmentHistory,\n    portfolio_or_work_sample: portfolioOrWorkSample,\n    verification_summary: {\n      total_items_checked: fields.length,\n      evidence_verified_count: verifiedCount,\n      not_verified_count: fields.length - verifiedCount\n    }\n  }\n}];\n"
+        }
+      },
+      {
+        "id": "da6f1509-c720-4e41-bf85-9e24c8b178d4",
+        "name": "CallCANDOR04ForATSExport",
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1.3,
+        "position": [
+          1340,
+          1000
+        ],
+        "parameters": {
+          "source": "database",
+          "mode": "each",
+          "workflowId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "sqYbHtxZPyWRgAjo"
+          },
+          "workflowInputs": {
+            "mappingMode": "defineBelow",
+            "value": {}
+          },
+          "options": {}
+        },
+        "onError": "continueRegularOutput"
+      }
+    ],
+    "connections": {
+      "CheckFileBasics": {
+        "main": [
+          [
+            {
+              "node": "RouteByIntakeValidity",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "RouteByIntakeValidity": {
+        "main": [
+          [
+            {
+              "node": "RouteByFileType",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "RejectedIntake",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "RouteByFileType": {
+        "main": [
+          [
+            {
+              "node": "ExtractFromPDF",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "ExtractFromTextFile",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "ExtractFromPDF": {
+        "main": [
+          [
+            {
+              "node": "NormalizeText",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "ExtractFromTextFile": {
+        "main": [
+          [
+            {
+              "node": "NormalizeText",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "NormalizeText": {
+        "main": [
+          [
+            {
+              "node": "ComputeResumeContentHash",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "ComputeResumeContentHash": {
+        "main": [
+          [
+            {
+              "node": "CallCANDOR01",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "FormTriggerResumeUpload": {
+        "main": [
+          [
+            {
+              "node": "CheckSecureConfigOverride",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "CheckSecureConfigOverride": {
+        "main": [
+          [
+            {
+              "node": "CheckFileBasics",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "FormTriggerApplicationSubmission": {
+        "main": [
+          [
+            {
+              "node": "CheckSecureConfigOverrideApplicationForm",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "CheckSecureConfigOverrideApplicationForm": {
+        "main": [
+          [
+            {
+              "node": "CheckApplicationFormBasics",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "CheckApplicationFormBasics": {
+        "main": [
+          [
+            {
+              "node": "RouteByApplicationFormValidity",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "RouteByApplicationFormValidity": {
+        "main": [
+          [
+            {
+              "node": "BuildApplicationCandidateRecord",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "RejectedApplicationIntake",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "BuildApplicationCandidateRecord": {
+        "main": [
+          [
+            {
+              "node": "CallCANDOR04FromApplicationForm",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "FormTriggerATSExport": {
+        "main": [
+          [
+            {
+              "node": "CheckSecureConfigOverrideATSExport",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "CheckSecureConfigOverrideATSExport": {
+        "main": [
+          [
+            {
+              "node": "ExtractATSExportFileText",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "ExtractATSExportFileText": {
+        "main": [
+          [
+            {
+              "node": "ParseAndClassifyATSExportBatch",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "ParseAndClassifyATSExportBatch": {
+        "main": [
+          [
+            {
+              "node": "RouteByATSNeedsExtraction",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "RouteByATSNeedsExtraction": {
+        "main": [
+          [
+            {
+              "node": "CallCANDOR01ForATSExport",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "RouteByATSDirect",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "RouteByATSDirect": {
+        "main": [
+          [
+            {
+              "node": "BuildATSDirectCandidateRecord",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "RouteByATSInBatchDuplicate",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "RouteByATSInBatchDuplicate": {
+        "main": [
+          [
+            {
+              "node": "SkippedATSInBatchDuplicateRecord",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "RejectedATSRecord",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "BuildATSDirectCandidateRecord": {
+        "main": [
+          [
+            {
+              "node": "CallCANDOR04ForATSExport",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "nodeGroups": [],
+    "authors": "CANDOR project",
+    "name": null,
+    "description": null,
+    "autosaved": false,
+    "createdAt": "2026-09-19T04:10:06.982Z",
+    "updatedAt": "2026-09-19T04:10:06.982Z",
+    "workflowPublishHistory": [
+      {
+        "id": 522,
+        "workflowId": "JfP3IpSLcUJ1yOcC",
+        "versionId": "eadc2154-bbbf-4ade-a9df-ab330deb1e26",
+        "event": "activated",
+        "userId": "884ecb86-c72a-414f-9e57-24229cf9edc8",
+        "createdAt": "2026-09-19T04:10:07.074Z"
+      }
+    ]
+  },
+  "_export_meta": {
+    "note": "Sanitized, representative export for public release. Credential references, the builder's name, and internal-only metadata have been stripped. Node structure, connections, and Code-node JavaScript are real and unmodified from the live workflow. The full, unsanitized version is version-controlled in this project's private repository and is never published.",
+    "sanitized_at": "2026-09-19T23:50:00Z"
+  }
+}

@@ -1,0 +1,627 @@
+{
+  "name": "CANDOR-10 - Human Approval and Action Gateway",
+  "active": true,
+  "nodes": [
+    {
+      "id": "sticky-doc-10",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -100,
+        -260
+      ],
+      "parameters": {
+        "width": 900,
+        "height": 260,
+        "content": "## CANDOR-10 — Human Approval & Action Gateway\n\nScope (Master Instructions §13): present a candidate's real, freshly-generated CANDOR-07 briefing to a human reviewer, and record their decision — durably, auditably, tied to who decided and when.\n\nOut of scope: CANDOR-10 never executes reject/advance/contact/share. It only calls CANDOR-07 (read-only, to generate the briefing text) and appends one new record to candor08-decisions.jsonl (append-only, never overwrites CANDOR-08's own file).\n\nPage 1 (Form Trigger): candidate_id. Between pages: calls CANDOR-07 as a sub-workflow (fails loud on an unknown candidate_id via CANDOR-07's own IntakeBriefingInputs check — no duplicated lookup logic here). Page 2 (Form): shows the real briefing + collects decision/decider identity/notes. After submission: builds and appends the decision record."
+      }
+    },
+    {
+      "id": "form-trigger-review-candidate",
+      "name": "FormTriggerReviewCandidate",
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.6,
+      "position": [
+        -100,
+        300
+      ],
+      "parameters": {
+        "formTitle": "CANDOR-10 — Review Candidate & Record Decision",
+        "formDescription": "Enter a candidate ID to view their CANDOR-07 briefing and record your decision. This form only records what you decide — it never executes reject, advance, contact, or share actions on your behalf (Master Instructions §13).",
+        "path": "candor10-review-candidate",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Candidate ID",
+              "fieldName": "candidate_id",
+              "fieldType": "text",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {}
+      },
+      "webhookId": "5e2cc1b7-f737-4913-ac3f-c5a689255b18"
+    },
+    {
+      "id": "call-candor07-for-briefing",
+      "name": "CallCANDOR07ForBriefing",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        140,
+        300
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "mode": "id",
+          "value": "qaYV6jQfKpYmEV1m"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {}
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "build-review-page-html",
+      "name": "BuildReviewPageHtml",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        380,
+        300
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Renders the real CANDOR-07 briefing (fetched fresh, one hop upstream)\n// into read-only HTML for the review form's second page. All values are\n// substituted here (not left as {{ }} placeholders) so the form field's\n// content is a plain, already-resolved string.\nfunction escapeHtml(str) {\n  return String(str === undefined || str === null ? '' : str)\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;')\n    .replace(/\"/g, '&quot;')\n    .replace(/'/g, '&#39;');\n}\n\nconst item = $input.item.json;\nconst candidateId = item.candidate_id;\nconst briefingText = item.briefing_text;\n\nif (!candidateId || !briefingText) {\n  throw new Error(\n    'BuildReviewPageHtml: incomplete briefing record received from CANDOR-07 (missing candidate_id or briefing_text) - refusing to render a partial review page.'\n  );\n}\n\nconst briefingParagraphs = String(briefingText)\n  .split(/\\n\\s*\\n/)\n  .map((p) => '<p>' + escapeHtml(p).replace(/\\n/g, '<br>') + '</p>')\n  .join('\\n');\n\nconst qaStatus = item.qa_passed === true ? 'passed' : (item.qa_passed === false ? 'FLAGGED - see CANDOR-07 build log' : 'not run');\n\nconst reviewHtml = [\n  '<h3>Candidate ' + escapeHtml(candidateId) + ' - ' + escapeHtml(item.job_title || item.job_id || '') + '</h3>',\n  '<p><strong>Match Score:</strong> ' + escapeHtml(item.match_score) + ' &nbsp; <strong>Evidence Confidence:</strong> ' + escapeHtml(item.evidence_confidence) + '</p>',\n  '<p><strong>Interpretation label:</strong> ' + escapeHtml(item.interpretation) + (item.low_evidence_confidence_flag ? '<br><em>Low evidence confidence flag: TRUE</em>' : '') + '</p>',\n  '<hr>',\n  briefingParagraphs,\n  '<hr>',\n  '<p><small>Briefing generated ' + escapeHtml(item.generated_at) + ' from audit record dated ' + escapeHtml(item.source_audit_record_audited_at) + '. QA self-check: ' + qaStatus + '.</small></p>',\n  '<p><small>This is a diagnostic aid only. Nothing on this page executes any action - your decision below is recorded, not carried out automatically.</small></p>'\n].join('\\n');\n\nreturn [{\n  json: {\n    ...item,\n    review_html: reviewHtml\n  }\n}];\n"
+      }
+    },
+    {
+      "id": "form-page-briefing-decision",
+      "name": "FormPageShowBriefingAndCollectDecision",
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 2.5,
+      "position": [
+        620,
+        300
+      ],
+      "parameters": {
+        "operation": "page",
+        "defineForm": "fields",
+        "formFields": {
+          "values": [
+            {
+              "fieldType": "html",
+              "html": "={{ $json.review_html }}"
+            },
+            {
+              "fieldLabel": "Decision",
+              "fieldName": "decision",
+              "fieldType": "dropdown",
+              "requiredField": true,
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "ADVANCE"
+                  },
+                  {
+                    "option": "REJECT"
+                  },
+                  {
+                    "option": "HOLD_MORE_INFO_NEEDED"
+                  }
+                ]
+              }
+            },
+            {
+              "fieldLabel": "Your Name",
+              "fieldName": "decider_name",
+              "fieldType": "text",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Your Email",
+              "fieldName": "decider_email",
+              "fieldType": "email",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Notes (optional)",
+              "fieldName": "decision_notes",
+              "fieldType": "textarea",
+              "requiredField": false
+            }
+          ]
+        },
+        "options": {
+          "formTitle": "Recorded Decision",
+          "formDescription": "This decision will be recorded, not executed. Reject/advance/contact/share remain the reviewer's own separate actions (Master Instructions §13)."
+        }
+      },
+      "webhookId": "0598c810-6a1f-4932-9ffd-c6bdcf5d9e72"
+    },
+    {
+      "id": "build-decision-record",
+      "name": "BuildDecisionRecord",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        860,
+        300
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Persists exactly one new, append-only decision record. Never overwrites\n// candor08-records.jsonl or any prior decision - a changed mind is a new\n// record, same discipline CANDOR-08 itself already follows.\nconst briefing = $('CallCANDOR07ForBriefing').first().json;\nconst decisionInput = $input.item.json;\n\nconst candidateId = briefing.candidate_id;\nconst jobId = briefing.job_id;\n\nif (!candidateId || !jobId) {\n  throw new Error('BuildDecisionRecord: missing candidate_id or job_id from the CANDOR-07 briefing record - refusing to persist an unlinked decision.');\n}\n\nconst ALLOWED_DECISIONS = ['ADVANCE', 'REJECT', 'HOLD_MORE_INFO_NEEDED'];\nconst decision = decisionInput.decision;\nif (!ALLOWED_DECISIONS.includes(decision)) {\n  throw new Error('BuildDecisionRecord: decision \"' + decision + '\" is not one of the allowed values (' + ALLOWED_DECISIONS.join(', ') + ').');\n}\n\nconst deciderName = String(decisionInput.decider_name || '').trim();\nconst deciderEmail = String(decisionInput.decider_email || '').trim();\nif (!deciderName || !deciderEmail) {\n  throw new Error('BuildDecisionRecord: decider_name and decider_email are both required - refusing to record an unattributed decision.');\n}\n\nconst decisionRecord = {\n  candidate_id: candidateId,\n  job_id: jobId,\n  job_title: briefing.job_title || null,\n  decision: decision,\n  decider_name: deciderName,\n  decider_email: deciderEmail,\n  decision_notes: decisionInput.decision_notes || null,\n  source_audit_record_audited_at: briefing.source_audit_record_audited_at || null,\n  match_score_at_decision: briefing.match_score,\n  evidence_confidence_at_decision: briefing.evidence_confidence,\n  interpretation_at_decision: briefing.interpretation,\n  briefing_text_reviewed: briefing.briefing_text,\n  briefing_generated_at: briefing.generated_at || null,\n  decision_schema_version: 'CANDOR-10 decision-record v0.1',\n  decided_at: new Date().toISOString(),\n  decision_disclaimer: \"This record documents a human reviewer's stated decision on a CANDOR-07 briefing. CANDOR itself never executes reject, advance, contact, or share actions - any action based on this decision is carried out separately, by the human reviewer, outside of CANDOR (Master Instructions section 13).\"\n};\n\nreturn [{\n  json: {\n    ...decisionRecord,\n    decision_line: JSON.stringify(decisionRecord) + '\\n'\n  }\n}];\n"
+      }
+    },
+    {
+      "id": "convert-decision-record-to-file",
+      "name": "ConvertDecisionRecordToFile",
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        1100,
+        300
+      ],
+      "parameters": {
+        "operation": "toText",
+        "sourceProperty": "decision_line",
+        "binaryPropertyName": "data",
+        "options": {
+          "fileName": "candor08-decisions.jsonl",
+          "encoding": "utf8"
+        }
+      }
+    },
+    {
+      "id": "append-decision-record",
+      "name": "AppendDecisionRecordToDisk",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        1340,
+        300
+      ],
+      "parameters": {
+        "operation": "write",
+        "fileName": "/home/node/.candor-files/candor08-decisions.jsonl",
+        "dataPropertyName": "data",
+        "options": {
+          "append": true
+        }
+      }
+    },
+    {
+      "id": "form-completion",
+      "name": "FormCompletion",
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 2.5,
+      "position": [
+        1580,
+        300
+      ],
+      "parameters": {
+        "operation": "completion",
+        "respondWith": "text",
+        "completionTitle": "Decision Recorded",
+        "completionMessage": "Your decision has been recorded. No action has been taken automatically - any next step (reject, advance, contact, share) remains yours to carry out separately."
+      },
+      "webhookId": "d3ea1185-f4aa-4ae5-b33a-0013fc97075a"
+    }
+  ],
+  "connections": {
+    "FormTriggerReviewCandidate": {
+      "main": [
+        [
+          {
+            "node": "CallCANDOR07ForBriefing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "CallCANDOR07ForBriefing": {
+      "main": [
+        [
+          {
+            "node": "BuildReviewPageHtml",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BuildReviewPageHtml": {
+      "main": [
+        [
+          {
+            "node": "FormPageShowBriefingAndCollectDecision",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FormPageShowBriefingAndCollectDecision": {
+      "main": [
+        [
+          {
+            "node": "BuildDecisionRecord",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "BuildDecisionRecord": {
+      "main": [
+        [
+          {
+            "node": "ConvertDecisionRecordToFile",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ConvertDecisionRecordToFile": {
+      "main": [
+        [
+          {
+            "node": "AppendDecisionRecordToDisk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AppendDecisionRecordToDisk": {
+      "main": [
+        [
+          {
+            "node": "FormCompletion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "executionOrder": "v1",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "saveManualExecutions": true,
+    "saveExecutionProgress": true
+  },
+  "staticData": null,
+  "tags": [],
+  "activeVersion": {
+    "versionId": "ba763ad2-bd53-4c06-a94b-1f124e367491",
+    "workflowId": "nmjuOV418r0ShHVj",
+    "nodes": [
+      {
+        "id": "sticky-doc-10",
+        "name": "Sticky Note",
+        "type": "n8n-nodes-base.stickyNote",
+        "typeVersion": 1,
+        "position": [
+          -100,
+          -260
+        ],
+        "parameters": {
+          "width": 900,
+          "height": 260,
+          "content": "## CANDOR-10 — Human Approval & Action Gateway\n\nScope (Master Instructions §13): present a candidate's real, freshly-generated CANDOR-07 briefing to a human reviewer, and record their decision — durably, auditably, tied to who decided and when.\n\nOut of scope: CANDOR-10 never executes reject/advance/contact/share. It only calls CANDOR-07 (read-only, to generate the briefing text) and appends one new record to candor08-decisions.jsonl (append-only, never overwrites CANDOR-08's own file).\n\nPage 1 (Form Trigger): candidate_id. Between pages: calls CANDOR-07 as a sub-workflow (fails loud on an unknown candidate_id via CANDOR-07's own IntakeBriefingInputs check — no duplicated lookup logic here). Page 2 (Form): shows the real briefing + collects decision/decider identity/notes. After submission: builds and appends the decision record."
+        }
+      },
+      {
+        "id": "form-trigger-review-candidate",
+        "name": "FormTriggerReviewCandidate",
+        "type": "n8n-nodes-base.formTrigger",
+        "typeVersion": 2.6,
+        "position": [
+          -100,
+          300
+        ],
+        "parameters": {
+          "formTitle": "CANDOR-10 — Review Candidate & Record Decision",
+          "formDescription": "Enter a candidate ID to view their CANDOR-07 briefing and record your decision. This form only records what you decide — it never executes reject, advance, contact, or share actions on your behalf (Master Instructions §13).",
+          "path": "candor10-review-candidate",
+          "formFields": {
+            "values": [
+              {
+                "fieldLabel": "Candidate ID",
+                "fieldName": "candidate_id",
+                "fieldType": "text",
+                "requiredField": true
+              }
+            ]
+          },
+          "options": {}
+        },
+        "webhookId": "5e2cc1b7-f737-4913-ac3f-c5a689255b18"
+      },
+      {
+        "id": "call-candor07-for-briefing",
+        "name": "CallCANDOR07ForBriefing",
+        "type": "n8n-nodes-base.executeWorkflow",
+        "typeVersion": 1.3,
+        "position": [
+          140,
+          300
+        ],
+        "parameters": {
+          "source": "database",
+          "workflowId": {
+            "__rl": true,
+            "mode": "id",
+            "value": "qaYV6jQfKpYmEV1m"
+          },
+          "workflowInputs": {
+            "mappingMode": "defineBelow",
+            "value": {}
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "build-review-page-html",
+        "name": "BuildReviewPageHtml",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          380,
+          300
+        ],
+        "parameters": {
+          "language": "javaScript",
+          "mode": "runOnceForAllItems",
+          "jsCode": "// Renders the real CANDOR-07 briefing (fetched fresh, one hop upstream)\n// into read-only HTML for the review form's second page. All values are\n// substituted here (not left as {{ }} placeholders) so the form field's\n// content is a plain, already-resolved string.\nfunction escapeHtml(str) {\n  return String(str === undefined || str === null ? '' : str)\n    .replace(/&/g, '&amp;')\n    .replace(/</g, '&lt;')\n    .replace(/>/g, '&gt;')\n    .replace(/\"/g, '&quot;')\n    .replace(/'/g, '&#39;');\n}\n\nconst item = $input.item.json;\nconst candidateId = item.candidate_id;\nconst briefingText = item.briefing_text;\n\nif (!candidateId || !briefingText) {\n  throw new Error(\n    'BuildReviewPageHtml: incomplete briefing record received from CANDOR-07 (missing candidate_id or briefing_text) - refusing to render a partial review page.'\n  );\n}\n\nconst briefingParagraphs = String(briefingText)\n  .split(/\\n\\s*\\n/)\n  .map((p) => '<p>' + escapeHtml(p).replace(/\\n/g, '<br>') + '</p>')\n  .join('\\n');\n\nconst qaStatus = item.qa_passed === true ? 'passed' : (item.qa_passed === false ? 'FLAGGED - see CANDOR-07 build log' : 'not run');\n\nconst reviewHtml = [\n  '<h3>Candidate ' + escapeHtml(candidateId) + ' - ' + escapeHtml(item.job_title || item.job_id || '') + '</h3>',\n  '<p><strong>Match Score:</strong> ' + escapeHtml(item.match_score) + ' &nbsp; <strong>Evidence Confidence:</strong> ' + escapeHtml(item.evidence_confidence) + '</p>',\n  '<p><strong>Interpretation label:</strong> ' + escapeHtml(item.interpretation) + (item.low_evidence_confidence_flag ? '<br><em>Low evidence confidence flag: TRUE</em>' : '') + '</p>',\n  '<hr>',\n  briefingParagraphs,\n  '<hr>',\n  '<p><small>Briefing generated ' + escapeHtml(item.generated_at) + ' from audit record dated ' + escapeHtml(item.source_audit_record_audited_at) + '. QA self-check: ' + qaStatus + '.</small></p>',\n  '<p><small>This is a diagnostic aid only. Nothing on this page executes any action - your decision below is recorded, not carried out automatically.</small></p>'\n].join('\\n');\n\nreturn [{\n  json: {\n    ...item,\n    review_html: reviewHtml\n  }\n}];\n"
+        }
+      },
+      {
+        "id": "form-page-briefing-decision",
+        "name": "FormPageShowBriefingAndCollectDecision",
+        "type": "n8n-nodes-base.form",
+        "typeVersion": 2.5,
+        "position": [
+          620,
+          300
+        ],
+        "parameters": {
+          "operation": "page",
+          "defineForm": "fields",
+          "formFields": {
+            "values": [
+              {
+                "fieldType": "html",
+                "html": "={{ $json.review_html }}"
+              },
+              {
+                "fieldLabel": "Decision",
+                "fieldName": "decision",
+                "fieldType": "dropdown",
+                "requiredField": true,
+                "fieldOptions": {
+                  "values": [
+                    {
+                      "option": "ADVANCE"
+                    },
+                    {
+                      "option": "REJECT"
+                    },
+                    {
+                      "option": "HOLD_MORE_INFO_NEEDED"
+                    }
+                  ]
+                }
+              },
+              {
+                "fieldLabel": "Your Name",
+                "fieldName": "decider_name",
+                "fieldType": "text",
+                "requiredField": true
+              },
+              {
+                "fieldLabel": "Your Email",
+                "fieldName": "decider_email",
+                "fieldType": "email",
+                "requiredField": true
+              },
+              {
+                "fieldLabel": "Notes (optional)",
+                "fieldName": "decision_notes",
+                "fieldType": "textarea",
+                "requiredField": false
+              }
+            ]
+          },
+          "options": {
+            "formTitle": "Recorded Decision",
+            "formDescription": "This decision will be recorded, not executed. Reject/advance/contact/share remain the reviewer's own separate actions (Master Instructions §13)."
+          }
+        },
+        "webhookId": "0598c810-6a1f-4932-9ffd-c6bdcf5d9e72"
+      },
+      {
+        "id": "build-decision-record",
+        "name": "BuildDecisionRecord",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          860,
+          300
+        ],
+        "parameters": {
+          "language": "javaScript",
+          "mode": "runOnceForAllItems",
+          "jsCode": "// Persists exactly one new, append-only decision record. Never overwrites\n// candor08-records.jsonl or any prior decision - a changed mind is a new\n// record, same discipline CANDOR-08 itself already follows.\nconst briefing = $('CallCANDOR07ForBriefing').first().json;\nconst decisionInput = $input.item.json;\n\nconst candidateId = briefing.candidate_id;\nconst jobId = briefing.job_id;\n\nif (!candidateId || !jobId) {\n  throw new Error('BuildDecisionRecord: missing candidate_id or job_id from the CANDOR-07 briefing record - refusing to persist an unlinked decision.');\n}\n\nconst ALLOWED_DECISIONS = ['ADVANCE', 'REJECT', 'HOLD_MORE_INFO_NEEDED'];\nconst decision = decisionInput.decision;\nif (!ALLOWED_DECISIONS.includes(decision)) {\n  throw new Error('BuildDecisionRecord: decision \"' + decision + '\" is not one of the allowed values (' + ALLOWED_DECISIONS.join(', ') + ').');\n}\n\nconst deciderName = String(decisionInput.decider_name || '').trim();\nconst deciderEmail = String(decisionInput.decider_email || '').trim();\nif (!deciderName || !deciderEmail) {\n  throw new Error('BuildDecisionRecord: decider_name and decider_email are both required - refusing to record an unattributed decision.');\n}\n\nconst decisionRecord = {\n  candidate_id: candidateId,\n  job_id: jobId,\n  job_title: briefing.job_title || null,\n  decision: decision,\n  decider_name: deciderName,\n  decider_email: deciderEmail,\n  decision_notes: decisionInput.decision_notes || null,\n  source_audit_record_audited_at: briefing.source_audit_record_audited_at || null,\n  match_score_at_decision: briefing.match_score,\n  evidence_confidence_at_decision: briefing.evidence_confidence,\n  interpretation_at_decision: briefing.interpretation,\n  briefing_text_reviewed: briefing.briefing_text,\n  briefing_generated_at: briefing.generated_at || null,\n  decision_schema_version: 'CANDOR-10 decision-record v0.1',\n  decided_at: new Date().toISOString(),\n  decision_disclaimer: \"This record documents a human reviewer's stated decision on a CANDOR-07 briefing. CANDOR itself never executes reject, advance, contact, or share actions - any action based on this decision is carried out separately, by the human reviewer, outside of CANDOR (Master Instructions section 13).\"\n};\n\nreturn [{\n  json: {\n    ...decisionRecord,\n    decision_line: JSON.stringify(decisionRecord) + '\\n'\n  }\n}];\n"
+        }
+      },
+      {
+        "id": "convert-decision-record-to-file",
+        "name": "ConvertDecisionRecordToFile",
+        "type": "n8n-nodes-base.convertToFile",
+        "typeVersion": 1.1,
+        "position": [
+          1100,
+          300
+        ],
+        "parameters": {
+          "operation": "toText",
+          "sourceProperty": "decision_line",
+          "binaryPropertyName": "data",
+          "options": {
+            "fileName": "candor08-decisions.jsonl",
+            "encoding": "utf8"
+          }
+        }
+      },
+      {
+        "id": "append-decision-record",
+        "name": "AppendDecisionRecordToDisk",
+        "type": "n8n-nodes-base.readWriteFile",
+        "typeVersion": 1.1,
+        "position": [
+          1340,
+          300
+        ],
+        "parameters": {
+          "operation": "write",
+          "fileName": "/home/node/.candor-files/candor08-decisions.jsonl",
+          "dataPropertyName": "data",
+          "options": {
+            "append": true
+          }
+        }
+      },
+      {
+        "id": "form-completion",
+        "name": "FormCompletion",
+        "type": "n8n-nodes-base.form",
+        "typeVersion": 2.5,
+        "position": [
+          1580,
+          300
+        ],
+        "parameters": {
+          "operation": "completion",
+          "respondWith": "text",
+          "completionTitle": "Decision Recorded",
+          "completionMessage": "Your decision has been recorded. No action has been taken automatically - any next step (reject, advance, contact, share) remains yours to carry out separately."
+        },
+        "webhookId": "d3ea1185-f4aa-4ae5-b33a-0013fc97075a"
+      }
+    ],
+    "connections": {
+      "FormTriggerReviewCandidate": {
+        "main": [
+          [
+            {
+              "node": "CallCANDOR07ForBriefing",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "CallCANDOR07ForBriefing": {
+        "main": [
+          [
+            {
+              "node": "BuildReviewPageHtml",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "BuildReviewPageHtml": {
+        "main": [
+          [
+            {
+              "node": "FormPageShowBriefingAndCollectDecision",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "FormPageShowBriefingAndCollectDecision": {
+        "main": [
+          [
+            {
+              "node": "BuildDecisionRecord",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "BuildDecisionRecord": {
+        "main": [
+          [
+            {
+              "node": "ConvertDecisionRecordToFile",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "ConvertDecisionRecordToFile": {
+        "main": [
+          [
+            {
+              "node": "AppendDecisionRecordToDisk",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "AppendDecisionRecordToDisk": {
+        "main": [
+          [
+            {
+              "node": "FormCompletion",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "nodeGroups": [],
+    "authors": "CANDOR project",
+    "name": null,
+    "description": null,
+    "autosaved": false,
+    "createdAt": "2026-09-18T17:26:43.565Z",
+    "updatedAt": "2026-09-18T17:26:43.565Z",
+    "workflowPublishHistory": [
+      {
+        "id": 358,
+        "workflowId": "nmjuOV418r0ShHVj",
+        "versionId": "ba763ad2-bd53-4c06-a94b-1f124e367491",
+        "event": "activated",
+        "userId": "884ecb86-c72a-414f-9e57-24229cf9edc8",
+        "createdAt": "2026-09-18T17:26:53.987Z"
+      }
+    ]
+  },
+  "_export_meta": {
+    "note": "Sanitized, representative export for public release. Credential references, the builder's name, and internal-only metadata have been stripped. Node structure, connections, and Code-node JavaScript are real and unmodified from the live workflow. The full, unsanitized version is version-controlled in this project's private repository and is never published.",
+    "sanitized_at": "2026-09-19T23:50:00Z"
+  }
+}

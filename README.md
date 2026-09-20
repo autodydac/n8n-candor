@@ -52,7 +52,9 @@ Open either file directly in a browser (`interfaces/candor-candidate-console.htm
 
 The two interfaces under `/interfaces` are fully self-contained — open either `.html` file directly in a browser. They embed a synthetic data snapshot and never call out to any backend.
 
-Reproducing the underlying n8n pipeline requires your own n8n instance (Community Edition, self-hosted) and an Anthropic API key. Workflow exports and setup notes for each module are described in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md); no workflow JSON files, credential IDs, or internal infrastructure details are included in this repo (see Security & Privacy below).
+`/workflows` contains real, sanitized n8n workflow exports for 3 of the pipeline's most representative modules — the 3-adapter source intake (CANDOR-02), the deterministic scoring engine (CANDOR-04, the largest and most detailed of the three), and the human-approval gateway (CANDOR-10). These are genuine exports of the live workflows, not illustrative mockups — real node names, real connections, real Code-node JavaScript. Credential references and the builder's name have been stripped (each file's own `_export_meta` says so); everything else is real. Importing one into your own n8n instance will need a real Anthropic credential wired back in under the same credential name the nodes reference.
+
+Reproducing the full 10-module pipeline requires your own n8n instance (Community Edition, self-hosted) and an Anthropic API key; see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for how the modules not included here fit together. No credential IDs or internal infrastructure details (container paths, internal ports) are included anywhere in this repo (see Security & Privacy below).
 
 ## Security & privacy design
 
