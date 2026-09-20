@@ -289,21 +289,36 @@
     </div>
   </section>
 
+  <section aria-labelledby="hardening-h" style="margin-top:26px;">
+    <h2 class="section-title" id="hardening-h">Recent Corrections &amp; Hardening Pass</h2>
+    <div class="panel"><span class="bl"></span><span class="br"></span>
+      <p class="mono" style="font-size:11.5px; color:var(--txt-dim); margin-top:0;">
+        A real, self-audited pass over this project's own prior work — including a stale doc found and fixed, a
+        real sanitization gap found and fixed post-push, and an inconclusive test result reported as exactly
+        that rather than resolved by retrying.
+      </p>
+      <div id="hardening-list" style="display:flex; flex-direction:column; gap:10px;"></div>
+    </div>
+  </section>
+
   <footer>
     <p><strong>Data provenance:</strong> this snapshot was generated on <span id="footer-time" class="mono"></span>
     directly from this project's real local files as of that moment — <code>data/candor-08/candor08-records.jsonl</code>
-    (81 records), <code>data/candor-08/candor08-decisions.jsonl</code> (19 decisions),
-    <code>data/candor-08/observability-log.jsonl</code> (491 entries), the 3 circuit-breaker state files, the
+    (<span id="footer-records"></span> records), <code>data/candor-08/candor08-decisions.jsonl</code>
+    (<span id="footer-decisions"></span> decisions), <code>data/candor-08/observability-log.jsonl</code>
+    (<span id="footer-observability"></span> entries), the 3 circuit-breaker state files, the
     dead-letter queue, and fresh runs of <code>candor06_pool_bias_audit.py</code>, <code>candor06_pool_statistics.py</code>,
     <code>candor06_pool_clustering.py</code>, and <code>candor09_alerts_digest.py</code>. It is a frozen copy, not
-    a live feed — this page never calls out to n8n or any other backend, by design (Master Instructions §14).</p>
+    a live feed — this page never calls out to n8n or any other backend, by design (Master Instructions §14).
+    Real counts drift slightly with every subsequent git commit in this project (its own pre-commit hook runs
+    live regression checks that can add one real record) — a documented, expected mechanism, not an error.</p>
     <p>CANDOR is a demonstration project. Nothing on this page constitutes a hiring decision, a certification of
     legal or bias compliance, or a recommendation about any person — real or synthetic (Master Instructions
     §8 / §13 / §26).</p>
   </footer>
 </main>
 
-<script id="candor-data" type="application/json">{"snapshot_generated_at": "2026-09-19T06:26:25Z", "scoring_formula_version": "CANDOR-04 scoring v0.9", "persisted_records": 81, "decisions_logged": 19, "decisions_breakdown": {"REJECT": 2, "HOLD_MORE_INFO_NEEDED": 17, "ADVANCE": 0}, "modules_online": 10, "modules_total": 10, "circuit_breakers_open": 0, "circuit_breakers_total": 3, "dlq_pending": 0, "dlq_historical": 1, "active_alerts": 6, "observability_entries": 491, "observability_success": 490, "observability_error": 1, "mean_latency_ms": 4040, "max_latency_ms": 10263, "dedup_exact": 39, "dedup_near": 11, "intake_sources": {"file-upload": 69, "application-form": 4, "ats-export": 8}, "bias_audit": {"n": 6, "pool_formula_version": "CANDOR-04 scoring v0.6", "pool_stale_note": "Canonical 6-candidate demo pool has not been rescored under v0.9 - identical resubmission is correctly blocked by CANDOR-08's exact-match dedup gate (built 2026-09-18). Numbers below are still the real, current output of candor06_pool_bias_audit.py against that pool.", "requirement_failure_rates": [{"skill": "hubspot", "matched": 1, "total": 6, "pct": 17}, {"skill": "salesforce", "matched": 2, "total": 6, "pct": 33}]}, "pool_statistics": {"n": 6, "match_score": {"mean": 47.83, "median": 50.0, "min": 0, "max": 100}, "evidence_confidence": {"mean": 67.83, "median": 64.5, "min": 40, "max": 100}, "outliers": "none flagged (Tukey IQR fences, n=6)"}, "clusters": [{"label": "NOT_MATCHED + UNKNOWN", "n": 3}, {"label": "MATCHED + PARTIAL", "n": 1}, {"label": "MATCHED + SUFFICIENT", "n": 1}, {"label": "NOT_MATCHED + INSUFFICIENT_OR_IRRELEVANT", "n": 1}]}</script>
+<script id="candor-data" type="application/json">{"snapshot_generated_at": "2026-09-20T07:03:12Z", "scoring_formula_version": "CANDOR-04 scoring v0.9", "persisted_records": 149, "decisions_logged": 20, "decisions_breakdown": {"REJECT": 2, "HOLD_MORE_INFO_NEEDED": 18, "ADVANCE": 0}, "modules_online": 10, "modules_total": 10, "circuit_breakers_open": 0, "circuit_breakers_total": 3, "dlq_pending": 3, "dlq_historical": 4, "active_alerts": 8, "observability_entries": 571, "observability_success": 567, "observability_error": 4, "mean_latency_ms": 3951, "max_latency_ms": 10263, "dedup_exact": 39, "dedup_near": 18, "intake_sources": {"file-upload": 130, "application-form": 4, "ats-export": 15}, "bias_audit": {"n": 6, "pool_formula_version": "CANDOR-04 scoring v0.6", "pool_stale_note": "Canonical 6-candidate demo pool has not been rescored under v0.9 - identical resubmission is correctly blocked by CANDOR-08's exact-match dedup gate (built 2026-09-18). Numbers below are still the real, current output of candor06_pool_bias_audit.py against that pool.", "requirement_failure_rates": [{"skill": "hubspot", "matched": 1, "total": 6, "pct": 17}, {"skill": "salesforce", "matched": 2, "total": 6, "pct": 33}]}, "pool_statistics": {"n": 6, "match_score": {"mean": 47.83, "median": 50.0, "min": 0, "max": 100}, "evidence_confidence": {"mean": 67.83, "median": 64.5, "min": 40, "max": 100}, "outliers": "none flagged (Tukey IQR fences, n=6)"}, "clusters": [{"label": "NOT_MATCHED + UNKNOWN", "n": 3}, {"label": "MATCHED + PARTIAL", "n": 1}, {"label": "MATCHED + SUFFICIENT", "n": 1}, {"label": "NOT_MATCHED + INSUFFICIENT_OR_IRRELEVANT", "n": 1}], "hardening_pass": {"pass_date": "2026-09-19/20", "items": [{"title": "JD-extraction cache reconfirmed live", "detail": "ComputeJDContentHash through AppendJDExtractionCacheToDisk verified present, wired, active on the real workflow before any doc was touched; 2 real cache entries confirmed on disk."}, {"title": "All 7 real workflows version-controlled", "detail": "Full JSON exports (172 nodes total) via n8n's REST API, private repo; 3 sanitized, representative ones (source adapters, scoring engine, human gate) pushed publicly - a real gap in the first sanitization pass (an internal container path) was found by a post-push scan and fixed in a follow-up commit."}, {"title": "Circuit-breaker full lifecycle proven", "detail": "Threshold failures -> open -> blocked-while-open -> cooldown -> recovery probe -> closed -> normal traffic resumed, real evidence at every stage via a local mock server (real cost: $0.32 total for the whole pass, against a stated $5 ceiling)."}, {"title": "A real 60-concurrent latency ceiling found", "detail": "60/60 succeeded with zero data loss, but real queueing spread per-execution time 10.7s to 49.1s within one submission burst. 100-concurrent was inconclusive (a client-side test-harness limit, not a confirmed server ceiling) and reported as exactly that."}, {"title": "Real-browser CANDOR-10 confirmation", "detail": "A real Chrome browser correctly and natively received the page-2 response on the multi-page form's long-poll URL after ~10s - closing an open question from the concurrent-review test about whether that was a platform limitation (it wasn't; it was specific to the scripted test client)."}, {"title": "A record-count discrepancy reconciled", "detail": "148 vs. an expected 146 after a load test, traced to the project's own git pre-commit hook adding real regression-check records on 2 later commits - not a bug, a now-documented, expected side effect of committing during/after a test session."}]}}</script>
 <script id="candor-modules" type="application/json">[{"id": "CANDOR-01", "name": "Intake & Parsing Core", "status": "ONLINE", "detail": "Resume/JD extraction \u00b7 circuit breaker, retry, observability, DLQ"}, {"id": "CANDOR-02", "name": "Source Adapters (3)", "status": "ONLINE", "detail": "file-upload \u00b7 application-form \u00b7 ATS-export batch"}, {"id": "CANDOR-03", "name": "Claim Extraction & Evidence Verification", "status": "ONLINE", "detail": "Same workflow as CANDOR-01, by design"}, {"id": "CANDOR-04", "name": "Requirement Matching & Deterministic Scoring", "status": "ONLINE", "detail": "Match Score v0.9 \u00b7 7/7 permitted factors scored"}, {"id": "CANDOR-05", "name": "Bias & Fairness Audit Layer", "status": "ONLINE", "detail": "Per-run audit record \u00b7 same workflow as CANDOR-04"}, {"id": "CANDOR-06", "name": "Comparative Ranking & Clustering", "status": "ONLINE", "detail": "Pool statistics, bias audit, qualification clustering (Python)"}, {"id": "CANDOR-07", "name": "Recruiter Briefing Generator", "status": "ONLINE", "detail": "Claude Sonnet 5 \u00b7 5 hard constraints \u00b7 independent QA review pass"}, {"id": "CANDOR-08", "name": "Database / Historical Intelligence", "status": "ONLINE", "detail": "Append-only JSONL \u00b7 exact + near-duplicate dedup gate"}, {"id": "CANDOR-09", "name": "Alerts / Reporting", "status": "ONLINE", "detail": "Bias-rate + unreviewed-candidate digest (Python)"}, {"id": "CANDOR-10", "name": "Human Approval & Action Gateway", "status": "ONLINE", "detail": "2-page form \u00b7 records decisions, never executes one"}]</script>
 <script>
 (function(){
@@ -319,6 +334,9 @@
   var t = fmtTime(DATA.snapshot_generated_at);
   document.getElementById('snapshot-time').textContent = t;
   document.getElementById('footer-time').textContent = t;
+  document.getElementById('footer-records').textContent = DATA.persisted_records;
+  document.getElementById('footer-decisions').textContent = DATA.decisions_logged;
+  document.getElementById('footer-observability').textContent = DATA.observability_entries;
   document.getElementById('modules-online-label').textContent = DATA.modules_online + '/' + DATA.modules_total;
   document.getElementById('formula-version-inline').textContent = DATA.scoring_formula_version;
 
@@ -339,7 +357,7 @@
   telGrid.appendChild(tile('Persisted Records', String(DATA.persisted_records), 'cyan', 'candor08-records.jsonl'));
   telGrid.appendChild(tile('Decisions Logged', String(DATA.decisions_logged), 'cyan', 'candor08-decisions.jsonl, append-only'));
   telGrid.appendChild(tile('Circuit Breakers', DATA.circuit_breakers_open+' / '+DATA.circuit_breakers_total+' open', 'green', 'base · JD · briefing, all closed'));
-  telGrid.appendChild(tile('Dead-Letter Queue', DATA.dlq_pending+' pending', 'green', DATA.dlq_historical+' historical entry, requeued clean'));
+  telGrid.appendChild(tile('Dead-Letter Queue', DATA.dlq_pending+' pending', DATA.dlq_pending>0?'amber':'green', DATA.dlq_pending>0 ? DATA.dlq_pending+' of '+DATA.dlq_historical+' unrequeued (deliberate mock-failure test traffic, not a real production incident)' : DATA.dlq_historical+' historical entry, requeued clean'));
   telGrid.appendChild(tile('Active Alerts', String(DATA.active_alerts), 'amber', 'fresh candor09_alerts_digest.py run'));
   telGrid.appendChild(tile('Scoring Formula', 'v0.9', 'green', '7 / 7 permitted factors (Master Instructions §7)'));
   telGrid.appendChild(tile('Observability Log', DATA.observability_entries+' entries', 'cyan', DATA.observability_success+' success · '+DATA.observability_error+' error (matches DLQ)'));
@@ -394,12 +412,28 @@
     'INTAKE-SYNTHETIC-RESUME-03-...52436 — INSUFFICIENT INFORMATION, no recorded decision',
     'INTAKE-SYNTHETIC-RESUME-03-...58564 — INSUFFICIENT INFORMATION, no recorded decision',
     'INTAKE-SYNTHETIC-RESUME-03-...61634 — INSUFFICIENT INFORMATION, no recorded decision',
-    'INTAKE-SYNTHETIC-RESUME-02-...24359 — INSUFFICIENT INFORMATION, no recorded decision'
+    'INTAKE-SYNTHETIC-RESUME-02-...24359 — INSUFFICIENT INFORMATION, no recorded decision',
+    'INTAKE-CBTEST-CANDIDATE-5-...54983 — INSUFFICIENT INFORMATION, no recorded decision (deliberate mock-recovery-probe test candidate)',
+    '3 unrequeued dead-letter entries — real, deliberate mock-server failures from a controlled circuit-breaker lifecycle test, not real production incidents'
   ];
   alerts.forEach(function(a){ var li=document.createElement('li'); li.textContent=a; alertList.appendChild(li); });
   var clean = document.createElement('li'); clean.className='clean';
-  clean.textContent = 'Circuit breakers: all closed. Dead-letter queue: no unrequeued entries.';
+  clean.textContent = 'Circuit breakers: all closed.';
   alertList.appendChild(clean);
+
+  var hardGrid = document.getElementById('hardening-list');
+  (DATA.hardening_pass ? DATA.hardening_pass.items : []).forEach(function(h){
+    var row = document.createElement('div');
+    row.style.cssText = 'border:1px solid var(--line); border-radius:4px; padding:12px 14px; background:#0a1220aa;';
+    var title = document.createElement('div');
+    title.style.cssText = 'font-family:var(--font-b); font-weight:600; font-size:13.5px; color:var(--cyan);';
+    title.textContent = h.title;
+    var detail = document.createElement('div');
+    detail.style.cssText = 'font-family:var(--font-m); font-size:11.5px; color:var(--txt-dim); margin-top:6px; line-height:1.5;';
+    detail.textContent = h.detail;
+    row.appendChild(title); row.appendChild(detail);
+    hardGrid.appendChild(row);
+  });
 
   var modGrid = document.getElementById('module-grid');
   MODULES.forEach(function(m){

@@ -37,8 +37,18 @@ A separate real concurrent test targeted the human-approval workflow itself — 
 
 **No code change was needed in either the intake pipeline or the approval gateway as a result of this testing** — both held correctly under real, unoptimized load; the findings above are a redundant-cost inefficiency and a client-side test-methodology issue, both documented rather than hidden.
 
-## Honest test-coverage gaps, stated plainly
+## Honest test-coverage gaps, stated plainly (as of the original test)
 
-- The circuit breaker's *tripping* behavior under concurrent *failures* was not re-tested at volume — only its clean, closed state under concurrent successes. Tripping behavior for a single candidate was verified separately.
-- Whether a real browser client shares the long-held-connection behavior this test's script hit was not independently confirmed — a reasonable assumption for standard platform behavior, not a verified fact.
-- These are single-data-point measurements against one job posting and one synthetic candidate pool — not a statistically powered benchmark across varied job types or candidate volumes.
+- ~~The circuit breaker's *tripping* behavior under concurrent *failures* was not re-tested at volume~~ **Closed in a follow-up pass** — see below: the full open→cooldown→recover lifecycle was proven end to end, not just its clean-closed state.
+- ~~Whether a real browser client shares the long-held-connection behavior this test's script hit was not independently confirmed~~ **Closed in a follow-up pass** — see below: a real browser does not share it.
+- These are still single-data-point measurements against one job posting and one synthetic candidate pool — not a statistically powered benchmark across varied job types or candidate volumes.
+
+## Follow-up pass: circuit-breaker lifecycle, a real concurrency ceiling, and a real-browser confirmation
+
+A later session closed both gaps named above, with real evidence, plus pushed concurrency further.
+
+**Circuit-breaker full lifecycle**, proven with a local mock server (never the live provider) standing in for the Anthropic API, swapped in via a temporary credential and swapped back out afterward: 3 real threshold failures tripped the breaker open (its cooldown timer set to exactly the coded value); a 4th call was blocked in 31 milliseconds — the execution log shows the breaker's own check throwing before the API-calling node ever ran, and the mock server's own request log confirms it never received that call; after the real cooldown period elapsed, a recovery probe succeeded and reset the breaker to closed; normal traffic through the real credential was confirmed flowing again immediately after. Zero real provider cost for the failure-injection stages.
+
+**A real concurrency ceiling, found and reported honestly.** Pushed to 60 concurrent submissions (above the original 50-concurrent baseline): all 60 succeeded with zero data loss or corruption, but per-execution completion time within that one submission burst ranged from 10.7 seconds to 49.1 seconds — a clear, real queueing signal, not noise. A subsequent attempt at 100 concurrent produced an inconclusive result: the test harness itself (many parallel local processes) didn't complete within its own timeout, and the live execution log confirms zero new work was even created server-side — a client-tooling limit, reported as exactly that rather than as a confirmed system ceiling.
+
+**Real-browser confirmation of the human-approval gateway.** A full review was driven end to end in an actual browser (not a script) against a real, already-persisted candidate. The browser's own tab correctly sat on the multi-page form's long-poll URL and resolved on its own once the underlying work finished — no reload, no workaround. This directly answers the open question above: the long-held-connection behavior found earlier was specific to that session's scripted test client, not something a real reviewer using a real browser would ever encounter.

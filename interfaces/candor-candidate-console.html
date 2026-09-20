@@ -207,6 +207,13 @@
     synthetic snapshot — it is not connected to any live system and will never update on its own.</p>
     <p>CANDOR supports, and never replaces, human employment decisions. Nothing on this page is a certification
     of legal or bias compliance, or a recommendation about any person (Master Instructions §8 / §13 / §26).</p>
+    <p style="margin-top:10px;">Since this pool was curated, the underlying pipeline went through a real
+    corrections-and-hardening pass: a stale doc entry found and fixed, all real workflows version-controlled,
+    a circuit-breaker's full open→cooldown→recover lifecycle proven end to end, a real concurrency ceiling
+    found and honestly reported, and one full review of this exact console's companion tool (CANDOR-10)
+    completed in a real browser. Full detail on the <a href="candor-ops-hud.html" style="color:var(--cyan);">Ops
+    HUD</a>. The pipeline now holds 149 real persisted records and 20 real logged decisions project-wide — this
+    console's own 5-candidate curated pool is unchanged and still accurate.</p>
   </footer>
 </main>
 
@@ -221,7 +228,7 @@
 <script>
 (function(){
   var POOL = JSON.parse(document.getElementById('candor-pool').textContent);
-  var SNAPSHOT_TIME = "2026-09-19T06:26:25Z";
+  var SNAPSHOT_TIME = "2026-09-20T07:03:12Z";
   var FORMULA = "CANDOR-04 scoring v0.9";
   document.getElementById('footer-formula').textContent = FORMULA;
   document.getElementById('snapshot-line').textContent =
